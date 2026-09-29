@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for 2026-09-29-architecture-agent.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-29-architecture-agent.md
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations:
+  en: 2511ae4410c6af7f
+  zh: bcd393cb7e9bc5de
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/problem:
+  en: 59b9302c24636214
+  zh: 64f7353066de639f
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal:
+  en: 5e6268282cba2e0d
+  zh: 106da1f9a5c5aaca
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/architecture-sources:
+  en: d861ca3a395efc56
+  zh: 592bba350fa7158a
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/edit-rule:
+  en: 0942c911a8d0312b
+  zh: 7eaf133bb23f7765
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/dashboard:
+  en: 1afaf26209444b4d
+  zh: 5c159f7ef9441ca0
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/architecture-session:
+  en: 8d5ae931568fa2ef
+  zh: c317ce831ed86e70
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/consultation-and-rulings:
+  en: 48f145b02100cc4e
+  zh: 99a56ee10fb32e20
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/durable-records:
+  en: 87b82f501d6f2621
+  zh: 8773e635bf6c31f0
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/background-proposals:
+  en: 2083e20ff740e06b
+  zh: 6d85e08aa64061d6
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/packages:
+  en: 5c58c5a3defba0b7
+  zh: 23cd26127890032a
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/proposal/pilot:
+  en: 265e248576b80f39
+  zh: 00bb5492cea6d673
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/alternatives-considered:
+  en: 7b34755914e9a524
+  zh: 1a603118b45ab4a6
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/acceptance-criteria:
+  en: e1572f0432de4b42
+  zh: 2f0812c0a285dda9
+/agent-note-architecture-agent-with-dashboard-architecture-sessions-and-binding-consultations/risks:
+  en: 689500ebf2715020
+  zh: 5aca42df52bbed1c
