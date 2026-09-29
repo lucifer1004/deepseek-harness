@@ -1,0 +1,16 @@
+# Architecture sources of DeepSeek Harness, read by @deepseek-ai/dsh-experimental-architecture.
+# Only the architecture agent edits these files, and only in the primary worktree on
+# the configured main branch. Chinese counterparts mirror the English sources and are
+# excluded, so each decision has one citable text.
+sources:
+  - docs/architecture.md
+  - docs/capability-seams.md
+  - docs/agent-lifecycle.md
+  - docs/tool-execution-pipeline.md
+  - docs/event-producer-consumer.md
+  - docs/defensive-patterns.md
+  - docs/glossary.md
+  - docs/subsystems/*.md
+  - .agents/notes/implemented/architecture/*.md
+exclude:
+  - '**/*.zh.md'
