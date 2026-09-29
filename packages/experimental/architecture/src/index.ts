@@ -10,27 +10,37 @@ import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import { runConsultation, SUBMIT_RULING_TOOL } from './consultation.ts'
 import { GitFiles } from './git-files.ts'
 import { canonicalizeForWrite, isProtected, writeCall, writeTarget, type ProtectedPaths } from './guard.ts'
 import { buildIndex } from './index-builder.ts'
 import { parseManifest } from './manifest.ts'
 import { locateCheckout } from './repository.ts'
+import { validateRuling } from './ruling.ts'
+import { indexSections, sectionText } from './sections.ts'
 import type {
   ArchitectureEditRequest,
   ArchitectureEditResult,
   ArchitectureIndex,
   ArchitectureManifest,
   Config,
+  ConsultRequest,
+  ConsultResult,
   EditRefusal,
+  IndexedSection,
+  SourcePath,
 } from './types.ts'
 
 export type * from './types.ts'
 export { ManifestError } from './manifest.ts'
-export { githubSlug, hashSection, indexSections } from './sections.ts'
+export { githubSlug, hashSection, indexSections, sectionText } from './sections.ts'
+export { describeCitationFailure, parseCite } from './citations.ts'
+export { CONSULTATION_INSTRUCTION, restrictToArchitectTools, SUBMIT_RULING_TOOL } from './consultation.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -69,6 +79,10 @@ export function describeRefusal(refusal: EditRefusal): string {
       return `architecture sources change only on branch ${refusal.mainBranch}; the checkout is on ${refusal.branch ?? 'a detached HEAD'}`
     case 'not-protected':
       return `${refusal.path} is neither an architecture source, the manifest, nor a path under the local architecture directory`
+    case 'unknown-section':
+      return `${refusal.path} has no indexed section #${refusal.anchor}`
+    case 'stale-section':
+      return `${refusal.path}#${refusal.anchor} changed since it was read; its current hash is ${refusal.hash}`
   }
 }
 
@@ -84,6 +98,7 @@ export class ArchitectureService extends Service {
     architectTools: z.array(z.string()).default([]).description('Tool names an agent composed with `architectPreset` may run; every other call is denied.'),
     gitTimeoutMs: z.natural().min(1).default(10_000).description('Milliseconds a git command may run before it is terminated.'),
     maxSourceBytes: z.natural().min(1).default(1_048_576).description('Byte cap on one manifest source read while indexing.'),
+    consultTimeoutMs: z.natural().min(1).default(300_000).description('Milliseconds a consultation waits for the architect to submit a Ruling.'),
   })
 
   private readonly config: Config
@@ -100,7 +115,8 @@ export class ArchitectureService extends Service {
     }
     if (config.mainBranch.trim().length === 0) throw new Error('architecture: mainBranch must be a non-empty branch name')
     this.config = config
-    this.architectTools = new Set(config.architectTools)
+    // The service registers `submit_ruling` on its own consultation agents.
+    this.architectTools = new Set([...config.architectTools, SUBMIT_RULING_TOOL])
     ctx.effect(() => ctx.tools.guard(exec => this.guardReason(exec)), 'architecture: edit-rule tool guard')
   }
 
@@ -143,7 +159,7 @@ export class ArchitectureService extends Service {
       root,
       manifest,
       maxSourceBytes: this.config.maxSourceBytes,
-      listFiles: (listRoot, listSignal) => files.list(listRoot, listSignal),
+      listFiles: (listRoot, globs, listSignal) => files.list(listRoot, globs, listSignal),
       signal,
     })
     const protectedFiles = new Set(protectedBase.files)
@@ -182,11 +198,14 @@ export class ArchitectureService extends Service {
   }
 
   /**
-   * Write one architecture file under the main-branch edit rule. The target
-   * must be the manifest, an indexed source, or a path under the local
-   * directory, and the checkout must be the primary worktree on `mainBranch`.
-   * The write replaces the file atomically and rebuilds the index.
-   * @param request - Session directory, target, and content.
+   * Write one architecture file, or replace one of its indexed sections, under
+   * the main-branch edit rule. The target must be the manifest, an indexed
+   * source, or a path under the local directory, and the checkout must be the
+   * primary worktree on `mainBranch`. A section edit reads the current file,
+   * refuses when the section is missing or its hash differs from
+   * `expectedHash`, and replaces the section's lines. The write replaces the
+   * file atomically and rebuilds the index.
+   * @param request - Session directory, target, optional section, and content.
    * @returns the written path, or the refusal.
    */
   async edit(request: ArchitectureEditRequest): Promise<ArchitectureEditResult> {
@@ -196,12 +215,94 @@ export class ArchitectureService extends Service {
     /* v8 ignore next -- checkEdit refuses a missing checkout. */
     if (checkout === undefined) return { kind: 'refused', refusal: { kind: 'not-repository', cwd: request.cwd } }
     const target = canonicalizeForWrite(resolve(checkout.root, request.path))
+    const path = relative(checkout.root, target).split(sep).join(posix.sep)
+    let content = request.content
+    if (request.anchor !== undefined) {
+      // `checkEdit` admitted the target, so it is the manifest, an indexed source, or under the local directory.
+      const current = await readFile(target, { encoding: 'utf8', signal: request.signal })
+      const section = indexSections(brandString<SourcePath>(path), current).find(entry => entry.anchor === request.anchor)
+      if (section === undefined) return { kind: 'refused', refusal: { kind: 'unknown-section', path, anchor: request.anchor } }
+      if (request.expectedHash !== undefined && request.expectedHash !== section.hash) {
+        return { kind: 'refused', refusal: { kind: 'stale-section', path, anchor: request.anchor, hash: section.hash } }
+      }
+      // The section's trailing blank lines separate it from the next heading; the replacement keeps them.
+      const lines = current.split('\n')
+      const body = lines.slice(section.line - 1, section.endLine)
+      let blank = 0
+      while (blank < body.length - 1 && body[body.length - 1 - blank]?.trim() === '') blank += 1
+      const replacement = request.content.replace(/\s+$/, '').split('\n')
+      content = [...lines.slice(0, section.line - 1), ...replacement, ...body.slice(body.length - blank), ...lines.slice(section.endLine)].join('\n')
+    }
     await mkdir(dirname(target), { recursive: true })
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(temporary, request.content, { signal: request.signal })
+    await writeFile(temporary, content, { signal: request.signal })
     await rename(temporary, target)
     await this.rebuild(checkout.root, request.signal)
-    return { kind: 'written', path: relative(checkout.root, target).split(sep).join(posix.sep) }
+    return { kind: 'written', path }
+  }
+
+  /**
+   * Read one indexed section as it is in the primary worktree.
+   * @param cwd - absolute directory inside the checkout.
+   * @param path - source path from the index.
+   * @param anchor - section anchor within that source.
+   * @param signal - cancels the read.
+   * @returns the section and its text, or undefined when the index has no such section.
+   */
+  async readSection(
+    cwd: string,
+    path: string,
+    anchor: string,
+    signal?: AbortSignal,
+  ): Promise<{ section: IndexedSection; text: string } | undefined> {
+    const index = this.index(cwd)
+    const section = index?.sections.find(entry => entry.path === path && entry.anchor === anchor)
+    if (index === undefined || section === undefined) return undefined
+    const source = await readFile(join(index.root, section.path), { encoding: 'utf8', signal })
+    return { section, text: sectionText(source, section) }
+  }
+
+  /**
+   * Ask the architect one question on behalf of a worker. The service rebuilds
+   * the index of the worker's repository, runs an architect agent as a hidden
+   * child of the worker's Session, and validates its submission into a Ruling
+   * whose every constraint cites a section committed on `mainBranch`.
+   * @param request - worker, question, scope, and cancellation.
+   * @returns the Ruling, or an unresolved result naming why there is none.
+   * @throws when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.
+   */
+  async consult(request: ConsultRequest): Promise<ConsultResult> {
+    const cwd = request.worker.session.header.cwd
+    if (cwd === undefined) throw new Error('architecture: the consulting Session has no working directory')
+    const index = await this.rebuild(cwd, request.signal)
+    if (index === undefined) throw new Error(`architecture: the repository has no ${this.config.manifestPath}; establish the architecture in an Architecture Session first`)
+    const agents = this.ctx.get('agents')
+    const presets = this.ctx.get('agentPresets')
+    if (agents === undefined || presets === undefined) {
+      throw new Error('architecture: consultation requires the agent registry and the agent preset registry')
+    }
+    const scopeLine = request.scope.length === 0 ? '' : `\n\nScope: ${request.scope.join(', ')}`
+    const outcome = await runConsultation({
+      agents,
+      presets,
+      worker: request.worker,
+      cwd,
+      prompt: `${request.question}${scopeLine}`,
+      preset: this.config.architectPreset,
+      tools: this.config.architectTools,
+      timeoutMs: this.config.consultTimeoutMs,
+      signal: request.signal,
+    })
+    if (outcome.kind !== 'submitted') return { kind: outcome.kind, id: outcome.id, session: outcome.session }
+    const files = this.requireFiles()
+    const ruling = await validateRuling(
+      { id: outcome.id, question: request.question, scope: request.scope },
+      outcome.submission,
+      index,
+      this.config.mainBranch,
+      path => files.committed(index.root, this.config.mainBranch, path, request.signal),
+    )
+    return { kind: 'ruling', ruling, session: outcome.session }
   }
 
   /**

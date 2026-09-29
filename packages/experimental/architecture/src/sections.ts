@@ -57,6 +57,16 @@ export function hashSection(text: string): SectionHash {
 }
 
 /**
+ * The text of one section as {@link indexSections} hashed it.
+ * @param source - the source's UTF-8 text.
+ * @param section - a section indexed from that text.
+ * @returns the section's lines from its heading through its last line.
+ */
+export function sectionText(source: string, section: Pick<IndexedSection, 'line' | 'endLine'>): string {
+  return source.split('\n').slice(section.line - 1, section.endLine).join('\n')
+}
+
+/**
  * Index every section of one Markdown source. Text before the first heading
  * becomes a level-0 section with an empty anchor when it contains anything but
  * whitespace. Repeated slugs receive GitHub's `-1`, `-2`, … suffixes.
@@ -71,7 +81,7 @@ export function indexSections(path: SourcePath, source: string): IndexedSection[
   const firstLine = found[0]?.line ?? lines.length + 1
   const preamble = lines.slice(0, firstLine - 1).join('\n')
   if (preamble.trim().length > 0) {
-    sections.push({ path, anchor: '', title: '', level: 0, line: 1, hash: hashSection(preamble) })
+    sections.push({ path, anchor: '', title: '', level: 0, line: 1, endLine: firstLine - 1, hash: hashSection(preamble) })
   }
   const taken = new Set<string>()
   const bumps = new Map<string, number>()
@@ -87,7 +97,8 @@ export function indexSections(path: SourcePath, source: string): IndexedSection[
     taken.add(anchor)
     const end = found[index + 1]?.line ?? lines.length + 1
     const text = lines.slice(heading.line - 1, end - 1).join('\n')
-    sections.push({ path, anchor, title: heading.title, level: heading.level, line: heading.line, hash: hashSection(text) })
+    const { title, level, line } = heading
+    sections.push({ path, anchor, title, level, line, endLine: end - 1, hash: hashSection(text) })
   }
   return sections
 }

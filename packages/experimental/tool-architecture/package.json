@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-experimental-architecture",
-  "description": "Workspace architecture sources, section index, and the main-branch edit rule for the architecture agent",
+  "name": "@deepseek-ai/dsh-experimental-tool-architecture",
+  "description": "Model-facing architecture tools: consult_architect for workers and index, read, and edit tools for the architect",
   "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/experimental/architecture"
+    "directory": "packages/experimental/tool-architecture"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -18,6 +18,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./architect": {
+      "types": "./lib/types/architect.d.ts",
+      "default": "./lib/types/architect.js"
+    },
     "./locale/*.json": "./locale/*.json",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
@@ -25,27 +29,14 @@
   "files": [
     "locale/*.json",
     "lib/index.js",
+    "lib/types/**/*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
-  "dependencies": {
-    "@deepseek-ai/dsh-brand": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~",
-    "mdast-util-from-markdown": "^2.0.3",
-    "mdast-util-gfm": "^3.1.0",
-    "mdast-util-to-string": "^4.0.0",
-    "micromark-extension-gfm": "^3.0.0",
-    "picomatch": "^4.0.4",
-    "yaml": "^2.9.0",
-    "zod": "^4.4.3"
-  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent": "workspace:*",
-    "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
-    "@deepseek-ai/dsh-llm": "workspace:*",
-    "@deepseek-ai/dsh-session": "workspace:*",
-    "@deepseek-ai/dsh-subprocess": "workspace:*",
+    "@deepseek-ai/dsh-experimental-architecture": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*"
   },
@@ -57,15 +48,11 @@
     "@deepseek-ai/dsh-agent-loop": "workspace:*",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
-    "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-experimental-architecture": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
-    "@deepseek-ai/dsh-scope": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
-    "@deepseek-ai/dsh-subprocess": "workspace:*",
     "@deepseek-ai/dsh-subprocess-local": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
-    "@deepseek-ai/dsh-tools": "workspace:*",
-    "@types/mdast": "^4.0.4",
-    "@types/picomatch": "^4.0.2"
+    "@deepseek-ai/dsh-tools": "workspace:*"
   }
 }

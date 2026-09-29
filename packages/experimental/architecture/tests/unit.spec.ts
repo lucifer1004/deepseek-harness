@@ -33,8 +33,10 @@ const path = (value: string): SourcePath => brandString<SourcePath>(value)
 
 describe('parseManifest', () => {
   it('accepts workspace-relative source globs', () => {
-    expect(parseManifest('sources:\n  - docs/**/*.md\n  - ARCHITECTURE.md\n', 'architecture.yml'))
-      .toEqual({ sources: ['docs/**/*.md', 'ARCHITECTURE.md'] })
+    expect(parseManifest('sources:\n  - design/**/*.md\n  - ARCHITECTURE.md\n', 'architecture.yml'))
+      .toEqual({ sources: ['design/**/*.md', 'ARCHITECTURE.md'], exclude: [] })
+    expect(parseManifest('sources: [design/*.md]\nexclude: [design/*.zh.md]\n', 'architecture.yml'))
+      .toEqual({ sources: ['design/*.md'], exclude: ['design/*.zh.md'] })
   })
 
   it.each([
@@ -44,6 +46,7 @@ describe('parseManifest', () => {
     ['a parent segment', 'sources:\n  - ../other/*.md\n', /workspace-relative/],
     ['a backslash', 'sources:\n  - docs\\a.md\n', /workspace-relative/],
     ['an unknown key', 'sources:\n  - a.md\nextra: 1\n', /extra|Unrecognized/i],
+    ['a negated source', 'sources:\n  - design/*.md\n  - "!design/a.md"\n', /must not be negated/],
   ])('rejects %s', (_label, text, message) => {
     expect(() => parseManifest(text, 'architecture.yml')).toThrow(ManifestError)
     expect(() => parseManifest(text, 'architecture.yml')).toThrow(message)
@@ -87,8 +90,10 @@ describe('indexSections', () => {
 
 describe('matchSources', () => {
   it('matches globs, including dotfiles, sorted and deduplicated', () => {
-    expect(matchSources(['b.md', 'design/x.md', 'design/y.txt', '.hidden/notes/a.md', 'b.md'], ['design/*.md', 'b.md', '.hidden/**/*.md']))
+    expect(matchSources(['b.md', 'design/x.md', 'design/y.txt', '.hidden/notes/a.md', 'b.md'], { sources: ['design/*.md', 'b.md', '.hidden/**/*.md'], exclude: [] }))
       .toEqual(['.hidden/notes/a.md', 'b.md', 'design/x.md'])
+    expect(matchSources(['design/x.md', 'design/x.zh.md', 'src/a.ts'], { sources: ['design/*.md'], exclude: ['design/*.zh.md'] }))
+      .toEqual(['design/x.md'])
   })
 })
 

@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/tool-architecture/README.md
+/:
+  en: 181f0366b1e248e6
+  zh: 1ee14723547dc1c7
+/deepseek-ai-dsh-experimental-tool-architecture:
+  en: de1b433b566fdade
+  zh: 8a77b1d5a53eef95
+/deepseek-ai-dsh-experimental-tool-architecture/summary:
+  en: fba3981b54634916
+  zh: 73b28b3d3b5fe355
+/deepseek-ai-dsh-experimental-tool-architecture/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-experimental-tool-architecture/use-this-package:
+  en: 6ecd8433b4f6233f
+  zh: 3897298f298cad04
+/deepseek-ai-dsh-experimental-tool-architecture/use-this-package/when-to-choose-it:
+  en: 2a7d798a2d656c16
+  zh: 4c49c3dcb0e36b76
+/deepseek-ai-dsh-experimental-tool-architecture/use-this-package/smallest-working-example:
+  en: f7d268f1bcfcd88e
+  zh: 0357dfd96c14ccab
+/deepseek-ai-dsh-experimental-tool-architecture/use-this-package/what-success-and-failure-look-like:
+  en: a05188e5ecaee9a8
+  zh: a395aa3bde8d70ae
+/deepseek-ai-dsh-experimental-tool-architecture/understand-the-implementation:
+  en: b009fa5631f485f8
+  zh: ffe4fef68891391d
+/deepseek-ai-dsh-experimental-tool-architecture/further-exploration:
+  en: 2b9b4e66b2ded20c
+  zh: 07717cb26965413d
+/deepseek-ai-dsh-experimental-tool-architecture/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools:
+  en: 6b3f7fe18238bd1b
+  zh: 281149664412af10
+/deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/what-the-model-sees:
+  en: 8b0863a05510ec1b
+  zh: 5202288dc2724abd
+/deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/token-effect:
+  en: faccf68af5821815
+  zh: 07edfd8c7e3ffa4c
+/deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/kv-cache-effect:
+  en: 69765a0ffafd9d16
+  zh: eac3b16cf0dc0fb0
+/deepseek-ai-dsh-experimental-tool-architecture/known-limitations-and-deferred-work:
+  en: 5034856100c5d1b6
+  zh: 060171c4d78e4f10
+/deepseek-ai-dsh-experimental-tool-architecture/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

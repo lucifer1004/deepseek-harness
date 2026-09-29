@@ -53,32 +53,66 @@ describe('GitFiles', () => {
     await writeFile(join(repo, 'new.md'), 'n')
     await writeFile(join(repo, 'ignored.md'), 'i')
     const files = await gitFiles()
-    expect([...await files.list(repo, new AbortController().signal)].sort()).toEqual(['.gitignore', 'a.md', 'new.md'])
+    expect([...await files.list(repo, ['*'], new AbortController().signal)].sort()).toEqual(['.gitignore', 'a.md', 'new.md'])
   })
 
   it('fails outside a repository, above the output cap, and when aborted', async () => {
     const outside = await scratch()
-    await expect((await gitFiles()).list(outside, undefined)).rejects.toThrow(/ls-files failed/)
+    await expect((await gitFiles()).list(outside, ['*'], undefined)).rejects.toThrow(/ls-files failed/)
 
     const repo = await scratch()
     git(repo, 'init', '-q', '-b', 'main')
     await writeFile(join(repo, 'a-long-file-name.md'), 'a')
-    await expect((await gitFiles({ outputMaxBytes: 4 })).list(repo, undefined)).rejects.toThrow(/exceeded 4 bytes/)
+    await expect((await gitFiles({ outputMaxBytes: 4 })).list(repo, ['*'], undefined)).rejects.toThrow(/exceeded 4 bytes/)
 
     const aborted = new AbortController()
     aborted.abort()
-    await expect((await gitFiles()).list(repo, aborted.signal)).rejects.toThrow(/aborted before spawn/)
+    await expect((await gitFiles()).list(repo, ['*'], aborted.signal)).rejects.toThrow(/aborted before spawn/)
 
     const midway = new AbortController()
-    const listing = (await gitFiles()).list(repo, midway.signal)
+    const listing = (await gitFiles()).list(repo, ['*'], midway.signal)
     midway.abort()
     await expect(listing).rejects.toThrow(/^git ls-files was aborted$/)
+  })
+
+  it('reads a committed file, and reports a missing branch or path as absent', async () => {
+    const repo = await scratch()
+    git(repo, 'init', '-q', '-b', 'main')
+    await writeFile(join(repo, 'a.md'), '# A\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', 'init')
+    const files = await gitFiles()
+    expect(await files.committed(repo, 'main', 'a.md', undefined)).toBe('# A\n')
+    expect(await files.committed(repo, 'main', 'missing.md', undefined)).toBeUndefined()
+    expect(await files.committed(repo, 'nope', 'a.md', undefined)).toBeUndefined()
+    await expect(files.committed(await scratch(), 'main', 'a.md', undefined)).rejects.toThrow(/git cat-file failed/)
+  })
+
+  it('limits the listing to the given globs, including dot directories', async () => {
+    const repo = await scratch()
+    git(repo, 'init', '-q', '-b', 'main')
+    await mkdir(join(repo, 'design', 'sub'), { recursive: true })
+    await mkdir(join(repo, '.notes'))
+    for (const file of ['design/a.md', 'design/sub/b.md', '.notes/c.md', 'src.ts']) await writeFile(join(repo, file), 'x')
+    const files = await gitFiles()
+    expect([...await files.list(repo, ['design/*.md', '.notes/**/*.md'], undefined)].sort()).toEqual(['.notes/c.md', 'design/a.md'])
+  })
+
+  it('rejects a listing that ends mid-entry', async () => {
+    const root = await scratch()
+    const fake = join(root, 'fake-git')
+    await writeFile(fake, '#!/bin/sh\nprintf \'a.md\\0partial\'\n', { mode: 0o755 })
+    const ctx = new Context()
+    cleanups.push(() => ctx.fiber.dispose())
+    await ctx.plugin(LocalSubprocessRuntime)
+    const files = new GitFiles(ctx.subprocess, fake, { timeoutMs: 10_000, outputMaxBytes: 1_000 })
+    await expect(files.list(root, ['*'], undefined)).rejects.toThrow(/ended mid-entry/)
   })
 
   it('reports a timeout', async () => {
     const repo = await scratch()
     git(repo, 'init', '-q', '-b', 'main')
-    await expect((await gitFiles({ timeoutMs: 1 })).list(repo, undefined)).rejects.toThrow(/timed out after 1ms/)
+    await expect((await gitFiles({ timeoutMs: 1 })).list(repo, ['*'], undefined)).rejects.toThrow(/timed out after 1ms/)
   })
 })
 

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-在 agent 修改代码时，让仓库的架构文档保持权威。你在 `architecture.yml` manifest 中列出来源文档；本包为每个 Markdown 章节建立带 GitHub 锚点与内容哈希的索引，之后的裁定可以按确切版本引用 `path#anchor`。任何会话中的内置文件工具都不能写这些文档，本包自己的编辑路径只在主分支的主 worktree 中写入。它是拟议架构 agent 的基础，目前还没有工具或 UI。
+在 agent 修改代码时，让仓库的架构文档保持权威。你在 `architecture.yml` manifest 中列出来源文档；本包为每个 Markdown 章节建立带 GitHub 锚点与内容哈希的索引，裁定可以按确切版本引用 `path#anchor`。任何会话中的内置文件工具都不能写这些文档，本包自己的编辑路径只在主分支的主 worktree 中写入。`consult()` 为 worker 运行一个架构师 agent，并返回一份 Ruling，其约束性要求引用主分支上已提交的章节；[`@deepseek-ai/dsh-experimental-tool-architecture`](../tool-architecture/README.zh.md) 把它暴露给模型。
 
 ## 目录
 
@@ -49,6 +49,8 @@ kind: "package-reference"
 sources:
   - docs/architecture.md
   - docs/subsystems/*.md
+exclude:
+  - '**/*.zh.md'
 ```
 
 | 字段 | 默认值 | 含义 |
@@ -60,12 +62,13 @@ sources:
 | `architectTools` | `[]` | `architectPreset` agent 可以运行的工具名。 |
 | `gitTimeoutMs` | `10000` | 单条 git 命令可运行的毫秒数。 |
 | `maxSourceBytes` | `1048576` | 建立索引时单个来源读取的字节上限。 |
+| `consultTimeoutMs` | `300000` | 一次咨询等待架构师提交 Ruling 的毫秒数。 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-architecture)是所有可接受字段的完整来源。
 
 ### 成功与失败的表现
 
-`ctx.architecture.rebuild(cwd)` 返回包含 `cwd` 的仓库的索引；仓库没有 manifest 时返回 `undefined`；manifest 无效时抛出 `ManifestError`。过大、不可读或不是 UTF-8 的来源会出现在 `diagnostics` 中，而不会让重建失败。目标为受保护路径的 `write`、`edit` 或 `str_replace_editor` 调用会以指明该路径的错误结果失败。`ctx.architecture.edit()` 返回 `{ kind: 'written' }`，或 `kind` 为 `not-repository`、`linked-worktree`、`wrong-branch`、`not-protected` 之一的拒绝；`describeRefusal()` 把它渲染成一句话。
+`ctx.architecture.rebuild(cwd)` 返回包含 `cwd` 的仓库的索引；仓库没有 manifest 时返回 `undefined`；manifest 无效时抛出 `ManifestError`。过大、不可读或不是 UTF-8 的来源会出现在 `diagnostics` 中，而不会让重建失败。目标为受保护路径的 `write`、`edit` 或 `str_replace_editor` 调用会以指明该路径的错误结果失败。`ctx.architecture.edit()` 返回 `{ kind: 'written' }`，或 `kind` 为 `not-repository`、`linked-worktree`、`wrong-branch`、`not-protected`、`unknown-section`、`stale-section` 之一的拒绝；`describeRefusal()` 把它渲染成一句话。`ctx.architecture.consult()` 返回 `{ kind: 'ruling' }`、`timeout` 或 `no-submission`；worker 取消、worker 会话没有目录或仓库没有 manifest 时则 reject。
 
 -----
 
@@ -75,9 +78,11 @@ sources:
 <details>
 <summary>实现细节——点击展开</summary>
 
-manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成的缓存。索引总是从仓库的主 worktree 构建，因为编辑规则只允许来源在那里改变。来源发现使用 `git ls-files --cached --others --exclude-standard`，因此未跟踪但未被忽略的草稿会进入索引，被忽略的文件不会。只有 Markdown 来源会被拆分为章节。一个章节从其标题延伸到下一个任意级别的标题，因此编辑子章节不会改变父章节的哈希。锚点对标题的纯文本应用 GitHub 的 slug 规则，包括重复标题的 `-1`、`-2` 后缀；标题内的硬换行不产生空格。
+manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成的缓存。索引总是从仓库的主 worktree 构建，因为编辑规则只允许来源在那里改变。来源发现以来源 glob 作为 `:(glob)` pathspec 运行 `git ls-files --cached --others --exclude-standard`，因此未跟踪但未被忽略的草稿会进入索引，被忽略的文件不会；不以 NUL 结尾的列举会被视为截断而拒绝。`sources` 中以 `!` 开头的条目会被拒绝，因为 picomatch 会让它匹配所有其他路径；要排除的路径写在 `exclude` 下。只有 Markdown 来源会被拆分为章节。一个章节从其标题延伸到下一个任意级别的标题，因此编辑子章节不会改变父章节的哈希。锚点对标题的纯文本应用 GitHub 的 slug 规则，包括重复标题的 `-1`、`-2` 后缀；标题内的硬换行不产生空格。
 
 工具守卫是同步的，因此 checkout 发现从磁盘读取 `.git`、`commondir` 与 `HEAD`，而不运行 git。linked worktree 中受保护文件的副本同样受保护，因此 worktree 中的 worker 不能在那里修改来源再 merge 回来。在第一次重建之前，manifest 与本地目录就已受保护。比较之前，目标路径会经由符号链接祖先目录规范化。本包不发布 runtime invariant companion：服务从自己构建的索引推导受保护路径集，不存在能与之相互偏离的独立观察。
+
+咨询把架构师创建为 worker 会话的隐藏子 agent，`origin` 为 `'subagent'`，向其挂载 `architectPreset`，只保留该 preset 提供的 `architectTools`，并注册一个作用域内的 `submit_ruling` 工具和一段提示词。第一次提交结束该轮；之后的每次调用都被守卫拒绝。运行在提交时、到达 `consultTimeoutMs` 时或 worker 的信号中止时结束，架构师 agent 在每种情况下都会被释放。随后宿主检查每个被引用的 `path#anchor`：该章节必须在当前索引中，且在 `refs/heads/<mainBranch>` 上已提交的文件中具有相同的内容哈希。没有引用或任一引用失败的约束会成为未决点，其原因指明失败，因此未提交的草稿永远不会约束 worker。章节编辑替换从章节标题到其最后一行的内容，保留它与下一个标题之间的空行；`expectedHash` 与章节当前哈希不同时被拒绝。
 
 | 源码 | 职责 |
 |---|---|
@@ -86,8 +91,11 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 | [src/index-builder.ts](src/index-builder.ts) | glob 匹配与索引构建 |
 | [src/sections.ts](src/sections.ts) | Markdown 章节拆分、锚点与哈希 |
 | [src/repository.ts](src/repository.ts) | 同步 checkout 发现 |
-| [src/git-files.ts](src/git-files.ts) | 有界的 `git ls-files` 列举 |
+| [src/git-files.ts](src/git-files.ts) | 有界的 `git ls-files` 列举与已提交文件读取 |
 | [src/guard.ts](src/guard.ts) | 写入目标解析与受保护路径匹配 |
+| [src/citations.ts](src/citations.ts) | 引用解析，以及对照 `mainBranch` 的校验 |
+| [src/ruling.ts](src/ruling.ts) | 把提交校验为 Ruling |
+| [src/consultation.ts](src/consultation.ts) | 架构师 agent 运行与 `submit_ruling` |
 
 </details>
 
@@ -120,7 +128,21 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 
 #### KV Cache 影响
 
-拒绝是一条普通工具结果，追加在可复用历史前缀之后。本包不增加系统提示词文本或工具 schema，因此从不改变请求中更早的部分。
+拒绝是一条普通工具结果，追加在可复用历史前缀之后。守卫不增加系统提示词文本或工具 schema，因此从不改变请求中更早的部分。
+
+### 咨询
+
+#### 模型看到什么
+
+咨询中的架构师 agent 把 worker 的问题作为第一条用户消息收到；worker 指定了范围时，其后跟随 `Scope: <paths>`。它的系统提示词增加导出为 `CONSULTATION_INSTRUCTION` 的咨询说明，工具列表增加 `submit_ruling`，参数为 `summary`、`constraints`（每项含 `statement` 与 `cites`）和 `unresolved`。第二次提交返回 `the ruling is already submitted, so submit_ruling is not executed`。
+
+#### Token 影响
+
+该说明为每个架构师请求增加约 140 token，`submit_ruling` schema 约 150 token。worker 会话只承担自己的工具调用与结果。
+
+#### KV Cache 影响
+
+每次咨询都是一个拥有独立前缀的新会话，因此既不复用也不使 worker 已缓存的前缀失效。
 
 ## 已知限制与延期工作
 
@@ -131,7 +153,7 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 - **Shell 写入不受守卫**——`bash`、`pwsh`、终端与 `run_code` 仍可修改受保护文件；Agent Note 中拟议的 git 检查脚本是计划中的兜底。
 - **只识别内置文件工具**——守卫知道 `write`、`edit` 与 `str_replace_editor` 的参数名；其他插件的文件工具不受检查。
 - **索引仅在内存中**——来源在 `edit()` 之外改变时不会自动重建，重启后也会丢失。
-- **没有面向模型的工具、会话或仪表盘**——咨询、裁定、申诉与 Architecture Session 在 Agent Note 中拟议，尚未实现。
+- **没有仪表盘、Ruling 记录或申诉**——Ruling 只存在于 worker 的工具结果中；仪表盘、`.architecture/rulings/` 记录与申诉在 Agent Note 中拟议，尚未实现。
 - **实验原型，无稳定性承诺**——孵化期间约定仍可自由变更。
 
 <a id="dev-note"></a>
@@ -142,6 +164,6 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 
 本开发备注是维护者的工作上下文，明确不具权威性。
 
-本包是架构 agent 的里程碑 1。后续里程碑是 `architecture_edit` 与 `consult_architect` 工具、Architecture Session preset 以及仪表盘。
+本包承载架构 agent 的里程碑 1 与 2。下一个里程碑是带 Ruling 记录与申诉的仪表盘。
 
 </details>

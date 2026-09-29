@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "架构 Agent",
+    "description": "加入架构师 preset，并让 agent 在设计变更前向它咨询。"
+  }
+}

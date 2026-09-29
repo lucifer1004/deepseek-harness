@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Architecture Agent",
+    "description": "Add the architect preset and let agents consult it before design changes."
+  }
+}

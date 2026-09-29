@@ -9,13 +9,9 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../../../vendor/cordis" },
-    { "path": "../../util/brand" },
     { "path": "../../core/agent" },
-    { "path": "../../core/session" },
     { "path": "../../core/system-prompt" },
-    { "path": "../../llm/llm" },
     { "path": "../../core/tools" },
-    { "path": "../../preset/agent-preset-registry" },
-    { "path": "../../subprocess/subprocess" }
+    { "path": "../architecture" }
   ]
 }

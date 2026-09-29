@@ -60,7 +60,7 @@ Status: proposed
 
 ### 架构会话
 
-架构会话是绑定 `architect` agent preset、从仪表盘启动的普通会话，可以选择以某个组件、提案、上诉或开放问题为种子。该 preset 提供 persona、读取与搜索工具、通过 `ctx.sessionQuery` 读取其他会话的能力，以及架构工具。`ctx.architecture` 自己通过 `ctx.agents.create` 创建该会话：像 session-controller 和 webhook 那样在创建 setup 中用 `ctx.agentPresets.mount` 挂载 preset，并在同一 setup 中以架构师工具名调用 `agentCtx.tools.restrict({ allow })`。该限制会从这个 agent 的提示和执行中移除其他所有工具，包括 `dsh-tool-fs` 总是与 `read` 一起注册的 `write` 和 `edit`。
+架构会话是绑定 `architect` agent preset、从仪表盘启动的普通会话，可以选择以某个组件、提案、上诉或开放问题为种子。该 preset 提供 persona、仓库读取与搜索工具、用于查阅库文档和先例等外部资料的 `web_search` 与 `web_fetch`、通过 `ctx.sessionQuery` 读取其他会话的能力，以及架构工具。`ctx.architecture` 自己通过 `ctx.agents.create` 创建该会话：像 session-controller 和 webhook 那样在创建 setup 中用 `ctx.agentPresets.mount` 挂载 preset，并在同一 setup 中以架构师工具名调用 `agentCtx.tools.restrict({ allow })`。该限制会从这个 agent 的提示和执行中移除其他所有工具，包括 `dsh-tool-fs` 总是与 `read` 一起注册的 `write` 和 `edit`。
 
 沙箱模式不是执行手段：preset 无法固定会话的沙箱模式，它是每个会话的 `sandbox/mode` 事件，由 permission-presets 按用户默认值初始化，用户也可以切换。有两种机制不依赖它：工具 allow-list 让该 agent 没有任何通用写工具或执行工具；编辑规则的 guard 在每个会话中拒绝对架构来源的 `write`、`edit` 和 `str_replace_editor`。通过普通新建会话路径选择 `architect` preset 的会话没有 allow-list；guard 还会对组合 preset 为 `architect` 的任何 agent 拒绝所有可变更工具，因此这条路径同样无法写代码。
 
@@ -74,7 +74,7 @@ Status: proposed
 
 worker 调用 `consult_architect(question, scope?)`，其中 `scope` 指定路径或组件。提供方以与架构会话相同的方式创建一个咨询 agent：通过 `ctx.agents.create` 挂载 `architect` preset 并应用架构师工具 allow-list，记录为 worker 会话的子会话并带 `origin: 'subagent'`，使侧栏隐藏它；它基于当前索引 revision 和主 worktree 的来源作答。咨询 agent 通过调用一个作用域内的 `submit_ruling` 工具报告答案，其参数就是 Ruling 的各个字段；宿主代码在 `consult_architect` 返回之前校验该提交。咨询可以并发执行，不排在架构会话后面。调用最多等待配置的 `consultTimeoutMs`；超时则取消咨询 agent，并返回一个没有约束的未决结果。
 
-结果是一条 **Ruling**：一个 `RulingId`、索引 revision、零条或多条约束、零条或多条未决点。worker 必须遵守其中的约束。一条约束只有通过路径、锚点和内容 hash 引用了一个可引用的来源段落，才具有约束力；宿主在返回 Ruling 之前对照主 worktree 校验每处引用，并丢弃引用校验失败的约束。一个段落可引用，指它已提交在 `mainBranch` 上，或用户已在仪表盘中接受它（接受时会在 `.architecture/` 下记录所接受内容的 hash）。没有可引用来源的架构师判断会成为未决点和仪表盘上的开放问题，而不会成为约束。
+结果是一条 **Ruling**：一个 `RulingId`、索引 revision、零条或多条约束、零条或多条未决点。worker 必须遵守其中的约束。一条约束只有通过路径、锚点和内容 hash 引用了一个可引用的来源段落，才具有约束力；宿主在返回 Ruling 之前对照主 worktree 校验每处引用，并把引用校验失败的约束转为说明失败原因的未决点。一个段落可引用，指它已提交在 `mainBranch` 上，或用户已在仪表盘中接受它（接受时会在 `.architecture/` 下记录所接受内容的 hash）。没有可引用来源的架构师判断会成为未决点和仪表盘上的开放问题，而不会成为约束。
 
 worker 认为某条 Ruling 有误时调用 `appeal_ruling(rulingId, reason, evidence)`。上诉期间 Ruling 仍然有效：worker 可以继续不受影响的工作或停下来，但不得绕过约束。用户在仪表盘中裁决：
 
@@ -109,9 +109,11 @@ Ruling 作为 `consult_architect` 的工具结果到达 worker 模型，并作�
 
 ### 试点
 
-试点在本仓库上进行。其 manifest 列出现有的架构文档、生成的关系图和已实现的 Agent Note，首次建模主要是确认索引和补齐缺口。包把项目特有的行为放在 manifest 和项目说明文件中，这样同样的包无需 dsh 专属代码就能用于其他仓库。
+试点在本仓库上进行。其 manifest 列出现有的架构文档、生成的关系图和已实现的 Agent Note，首次建模主要是确认索引和补齐缺口。包把项目特有的行为放在 manifest 和项目说明文件中，这样同样的包无需 dsh 专属代码就能用于其他仓库。在试点中，`mainBranch` 是维护中 fork 的基底分支 `local/main`；其他仓库配置自己的分支。
 
 对当前源码的检查已经回答了三个实现问题。preset 无法固定会话的沙箱模式，因此由工具 allow-list 和 guard 执行禁止写入的规则。进程内 spawn 提供方支持 `outputSchema`，但 spawn 出的子 agent 会加入其父 agent 的 preset，因此通过 `ctx.subagents` 启动的咨询会带着 worker 的工具运行；咨询 agent 改为直接创建。工具结果的 `meta` 会原样持久化，但 session projection 只汇总单个会话，而仪表盘需要所有会话，因此由 `.architecture/rulings/` 下的 Ruling 记录服务仪表盘，worker 日志仍是权威。
+
+第二个里程碑（咨询与 architect preset）又回答了四个问题。`tools.restrict({ allow })` 会拒绝 agent 继承视图中不存在的名字，因此咨询从已配置的 `architectTools` 中只取已挂载 preset 实际提供的工具作为 allow-list。在本机上，子进程运行时收集的 stdout 会丢失大输出的尾部（本仓库完整的 `git ls-files` 在 850 KB 中只返回了 280 KB 到 850 KB 不等），因此来源列举把 manifest glob 作为 `:(glob)` pathspec 传给 git，并拒绝不以 NUL 结尾的列举。picomatch glob 数组中以 `!` 开头的条目会匹配所有其他路径，因此 manifest 另设 `exclude` 列表并拒绝否定形式的来源。咨询 Ruling 目前还不携带索引 revision；仪表盘里程碑会把它与 Ruling 记录一起加入。
 
 ## 考虑过的替代方案
 

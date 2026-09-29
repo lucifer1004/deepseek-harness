@@ -1,0 +1,72 @@
+# Experimental architecture agent profile layer. Apply after dsh-web-app, whose
+# per-preset tool composition this layer follows: the host service and worker
+# tool are host rows, and the architect preset mounts its own read, search, web,
+# and architecture tools. Set `mainBranch` on the `architecture` row in the
+# profile patch; the service fails to load without it.
+
+- insert:
+    - id: architecture
+      name: '@deepseek-ai/dsh-experimental-architecture'
+      config:
+        manifestPath: architecture.yml
+        localDirectory: .architecture
+        architectPreset: architect
+        architectTools:
+          - read
+          - glob
+          - grep
+          - web_search
+          - web_fetch
+          - session_search
+          - session_event_search
+          - session_trace
+          - session_event_trace
+          - session_event_read
+          - architecture_index
+          - architecture_read
+          - architecture_edit
+          - ask_user_question
+          - todo_write
+        consultTimeoutMs: 300000
+
+    - id: tool-architecture
+      name: '@deepseek-ai/dsh-experimental-tool-architecture'
+
+    - id: preset-architect
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: architect
+        name: Architect
+        description: Discuss and record the workspace architecture without changing code.
+        order: 10
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are the architecture agent for this workspace, powered by the {{model}} model.
+              suffix: Your working directory is {{cwd}}.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: tool-session-query
+            name: '@deepseek-ai/dsh-tool-session-query'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: false
+          - id: tool-architecture-architect
+            name: '@deepseek-ai/dsh-experimental-tool-architecture/architect'

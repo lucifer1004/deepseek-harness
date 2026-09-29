@@ -9,8 +9,8 @@
   en: 48e09bf5e629847c
   zh: 88aa65039bba0e71
 /deepseek-ai-dsh-experimental-architecture/summary:
-  en: 102be643b5209b75
-  zh: af53c3a91124eba2
+  en: 05612b943c46d7fc
+  zh: 9c99b81ee93cd1e4
 /deepseek-ai-dsh-experimental-architecture/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -21,14 +21,14 @@
   en: 723225e88aa3fc60
   zh: 36dcd53ee14f03db
 /deepseek-ai-dsh-experimental-architecture/use-this-package/minimal-configuration:
-  en: fcfdd48b87abb21a
-  zh: 480912fe565a3394
+  en: bd3844fe956771e0
+  zh: 983909cc12460d58
 /deepseek-ai-dsh-experimental-architecture/use-this-package/what-success-and-failure-look-like:
-  en: 499c3cd219dbb133
-  zh: 663e1fce7eb96fee
+  en: 29446ecd6c31ed2e
+  zh: 07d06e89227221fc
 /deepseek-ai-dsh-experimental-architecture/understand-the-implementation:
-  en: ce6e21532a21c0d0
-  zh: d68ec253cd21a2de
+  en: 59a956b1634067c8
+  zh: c65ef6974904b454
 /deepseek-ai-dsh-experimental-architecture/further-exploration:
   en: 039b46424e26f4b9
   zh: c36fa3c208d7a9c4
@@ -45,11 +45,23 @@
   en: 04c77f45e21dd5d8
   zh: c8e8e19bee3c1064
 /deepseek-ai-dsh-experimental-architecture/model-experience/guard-denial/kv-cache-effect:
-  en: fad1ec14848aa73a
-  zh: 9b54973a858f8675
+  en: 6cacdcf6598aad54
+  zh: 1a37b7202ebf2202
+/deepseek-ai-dsh-experimental-architecture/model-experience/consultation:
+  en: 2062733bb395f916
+  zh: 94b035aab824d075
+/deepseek-ai-dsh-experimental-architecture/model-experience/consultation/what-the-model-sees:
+  en: 507fbbf1d1049a61
+  zh: bb5cae02502b2608
+/deepseek-ai-dsh-experimental-architecture/model-experience/consultation/token-effect:
+  en: 6c67521d26365b59
+  zh: 364b91428c6d22e0
+/deepseek-ai-dsh-experimental-architecture/model-experience/consultation/kv-cache-effect:
+  en: 7c6c2c258aed02e3
+  zh: 48a1a51247b4ba8b
 /deepseek-ai-dsh-experimental-architecture/known-limitations-and-deferred-work:
-  en: e807dc0624dbc07c
-  zh: ae5484d49c905deb
+  en: e97b3c7003e6e2e0
+  zh: f6fa9cab59aeb7cf
 /deepseek-ai-dsh-experimental-architecture/known-limitations-and-deferred-work/dev-note:
-  en: 2bd79e8dee4ac6e5
-  zh: b1399ae3ad259033
+  en: e2df718a9a3081c5
+  zh: 2dee9857895eb61a

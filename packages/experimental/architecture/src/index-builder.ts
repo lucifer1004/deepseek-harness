@@ -12,8 +12,8 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { indexSections } from './sections.ts'
 import type { ArchitectureIndex, ArchitectureManifest, IndexDiagnostic, IndexedSection, SourcePath } from './types.ts'
 
-/** Lists the checkout's candidate files as repository-relative POSIX paths. */
-export type ListFiles = (root: string, signal: AbortSignal | undefined) => Promise<readonly string[]>
+/** Lists the checkout's candidate files under the given globs as repository-relative POSIX paths. */
+export type ListFiles = (root: string, globs: readonly string[], signal: AbortSignal | undefined) => Promise<readonly string[]>
 
 /** Inputs for one index build. */
 export interface BuildIndexRequest {
@@ -32,12 +32,13 @@ export interface BuildIndexRequest {
 /**
  * Match candidate paths against manifest globs.
  * @param files - repository-relative POSIX paths.
- * @param globs - manifest source globs.
- * @returns matching paths, sorted and deduplicated.
+ * @param manifest - source and exclude globs.
+ * @returns paths matching a source glob and no exclude glob, sorted and deduplicated.
  */
-export function matchSources(files: readonly string[], globs: readonly string[]): SourcePath[] {
-  const match = picomatch([...globs], { dot: true })
-  return [...new Set(files.filter(file => match(file)))].sort().map(file => brandString<SourcePath>(file))
+export function matchSources(files: readonly string[], manifest: Pick<ArchitectureManifest, 'sources' | 'exclude'>): SourcePath[] {
+  const included = picomatch([...manifest.sources], { dot: true })
+  const excluded = manifest.exclude.length === 0 ? () => false : picomatch([...manifest.exclude], { dot: true })
+  return [...new Set(files.filter(file => included(file) && !excluded(file)))].sort().map(file => brandString<SourcePath>(file))
 }
 
 /**
@@ -47,8 +48,8 @@ export function matchSources(files: readonly string[], globs: readonly string[])
  * @returns the rebuilt index.
  */
 export async function buildIndex(request: BuildIndexRequest): Promise<ArchitectureIndex> {
-  const files = await request.listFiles(request.root, request.signal)
-  const sources = matchSources(files, request.manifest.sources)
+  const files = await request.listFiles(request.root, request.manifest.sources, request.signal)
+  const sources = matchSources(files, request.manifest)
   const sections: IndexedSection[] = []
   const diagnostics: IndexDiagnostic[] = []
   const decoder = new TextDecoder('utf-8', { fatal: true })

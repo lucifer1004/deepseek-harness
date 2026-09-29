@@ -18,10 +18,11 @@ export class ManifestError extends Error {
 const relativeGlob = z.string().min(1).refine(
   glob => !posix.isAbsolute(glob) && !glob.includes('\\') && !glob.split('/').includes('..'),
   { message: 'must be a workspace-relative POSIX glob without ".." segments' },
-)
+).refine(glob => !glob.startsWith('!'), { message: 'must not be negated; list excluded paths under "exclude"' })
 
 const manifestSchema = z.strictObject({
   sources: z.array(relativeGlob).min(1),
+  exclude: z.array(relativeGlob).default([]),
 })
 
 /**
@@ -44,5 +45,5 @@ export function parseManifest(text: string, path: string): ArchitectureManifest 
     const issues = result.error.issues.map(issue => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
     throw new ManifestError(`${path}: ${issues.join('; ')}`)
   }
-  return { sources: result.data.sources }
+  return { sources: result.data.sources, exclude: result.data.exclude }
 }

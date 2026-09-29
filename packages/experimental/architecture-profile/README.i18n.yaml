@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/architecture-profile/README.md
+/:
+  en: 707e9bff14d72aa1
+  zh: 3b72c77c4966447f
+/deepseek-ai-dsh-experimental-architecture-profile:
+  en: f67b4d8106f74f0a
+  zh: ea43dd3c49d759e7
+/deepseek-ai-dsh-experimental-architecture-profile/summary:
+  en: 473f70c5297168b7
+  zh: 178d75b4638a22cd
+/deepseek-ai-dsh-experimental-architecture-profile/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-experimental-architecture-profile/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/deepseek-ai-dsh-experimental-architecture-profile/use-this-package/install-into-a-profile:
+  en: 3e9c33efb0ea584d
+  zh: 5faf08675998fad4
+/deepseek-ai-dsh-experimental-architecture-profile/use-this-package/what-you-get:
+  en: 1627c1e0f54e0c39
+  zh: d4b3f996236757c1
+/deepseek-ai-dsh-experimental-architecture-profile/understand-the-implementation:
+  en: c018dcab123780c3
+  zh: 89a865a9ba2a4192
+/deepseek-ai-dsh-experimental-architecture-profile/further-exploration:
+  en: 3bfc805a264d191d
+  zh: 9300e50c4d3429ba
+/deepseek-ai-dsh-experimental-architecture-profile/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-architecture-profile/model-experience/architect-preset-and-consultation:
+  en: a734d7659e783c77
+  zh: 84be3f786130bc03
+/deepseek-ai-dsh-experimental-architecture-profile/model-experience/architect-preset-and-consultation/what-the-model-sees:
+  en: d44f523e9a59bfc5
+  zh: 1e35ed10fc0df0b3
+/deepseek-ai-dsh-experimental-architecture-profile/model-experience/architect-preset-and-consultation/token-effect:
+  en: 2f36d610a620dae7
+  zh: dfc7d121eaf9e876
+/deepseek-ai-dsh-experimental-architecture-profile/model-experience/architect-preset-and-consultation/kv-cache-effect:
+  en: 4ad4606f8003ef7f
+  zh: 705a5b7f6c2ec1ae
+/deepseek-ai-dsh-experimental-architecture-profile/known-limitations-and-deferred-work:
+  en: 0d8d70d7251e9e36
+  zh: 06ec55eb154ed96f
+/deepseek-ai-dsh-experimental-architecture-profile/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

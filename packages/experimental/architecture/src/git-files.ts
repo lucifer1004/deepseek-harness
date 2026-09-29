@@ -1,6 +1,6 @@
 /**
- * List a checkout's candidate architecture files with git: tracked files plus
- * untracked files that are not ignored. Git runs through the subprocess
+ * Run bounded git queries for one checkout: list candidate architecture files
+ * and read a file as committed on a branch. Git runs through the subprocess
  * capability with a scrubbed environment, a timeout, and bounded output.
  * @module @deepseek-ai/dsh-experimental-architecture/git-files
  */
@@ -16,11 +16,11 @@ const STDERR_MAX_BYTES = 16 * 1024
 export interface GitLimits {
   /** Milliseconds before a command is terminated. */
   readonly timeoutMs: number
-  /** Byte cap on collected stdout; a listing above it fails instead of truncating. */
+  /** Byte cap on collected stdout; output above it fails instead of truncating. */
   readonly outputMaxBytes: number
 }
 
-/** Runs `git ls-files` for one checkout. */
+/** Runs git queries for one checkout. */
 export class GitFiles {
   /**
    * @param subprocess - process capability used to spawn git.
@@ -33,15 +33,11 @@ export class GitFiles {
     private readonly limits: GitLimits,
   ) {}
 
-  /**
-   * List candidate files of a checkout.
-   * @param root - checkout root.
-   * @param signal - cancels the listing.
-   * @returns repository-relative POSIX paths.
-   * @throws when git fails, times out, is aborted, or prints more than the output cap.
-   */
-  async list(root: string, signal: AbortSignal | undefined): Promise<readonly string[]> {
-    const args = ['ls-files', '-z', '--cached', '--others', '--exclude-standard']
+  private async run(
+    args: readonly string[],
+    root: string,
+    signal: AbortSignal | undefined,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
     const timeout = AbortSignal.timeout(this.limits.timeoutMs)
     const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
     const handle = this.subprocess.spawn({
@@ -53,15 +49,53 @@ export class GitFiles {
       env: { GIT_CONFIG_COUNT: '0', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' },
     })
     const outcome = await handle.done
+    const command = `git ${args[0]}`
     if (combined.aborted) {
-      throw new Error(`git ls-files ${timeout.aborted ? `timed out after ${this.limits.timeoutMs}ms` : 'was aborted'}`)
+      throw new Error(`${command} ${timeout.aborted ? `timed out after ${this.limits.timeoutMs}ms` : 'was aborted'}`)
     }
     /* v8 ignore start -- collect-mode stdio always yields both readers. */
     const stdout = handle.collected.stdout?.readFrom(0) ?? { text: '', lossy: false }
     const stderr = handle.collected.stderr?.readFrom(0).text ?? ''
     /* v8 ignore stop */
-    if (outcome.exitCode !== 0) throw new Error(`git ls-files failed in ${root}: ${stderr.trim()}`)
-    if (stdout.lossy) throw new Error(`git ls-files output exceeded ${this.limits.outputMaxBytes} bytes in ${root}`)
-    return [...new Set(stdout.text.split('\0').filter(path => path.length > 0))]
+    if (stdout.lossy) throw new Error(`${command} output exceeded ${this.limits.outputMaxBytes} bytes in ${root}`)
+    return { code: outcome.exitCode, stdout: stdout.text, stderr }
+  }
+
+  /**
+   * List candidate files of a checkout: tracked files plus untracked files that
+   * are not ignored, limited to the given globs. Git applies the globs as
+   * `:(glob)` pathspecs, so the listing holds only candidate sources; the caller
+   * still matches them against the manifest.
+   * @param root - checkout root.
+   * @param globs - repository-relative POSIX globs.
+   * @param signal - cancels the listing.
+   * @returns repository-relative POSIX paths.
+   * @throws when git fails, times out, is aborted, prints more than the output cap, or ends mid-entry.
+   */
+  async list(root: string, globs: readonly string[], signal: AbortSignal | undefined): Promise<readonly string[]> {
+    const pathspecs = globs.map(glob => `:(glob)${glob}`)
+    const result = await this.run(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...pathspecs], root, signal)
+    if (result.code !== 0) throw new Error(`git ls-files failed in ${root}: ${result.stderr.trim()}`)
+    // Every entry ends in NUL, so complete output is empty or ends in NUL.
+    if (result.stdout.length > 0 && !result.stdout.endsWith('\0')) throw new Error(`git ls-files output ended mid-entry in ${root}`)
+    return [...new Set(result.stdout.split('\0').filter(path => path.length > 0))]
+  }
+
+  /**
+   * Read one file as committed at the tip of a branch.
+   * @param root - checkout root.
+   * @param branch - local branch name.
+   * @param path - repository-relative POSIX path.
+   * @param signal - cancels the read.
+   * @returns the committed UTF-8 text, or undefined when the branch or the path at its tip does not exist.
+   * @throws when git fails for another reason, times out, is aborted, or prints more than the output cap.
+   */
+  async committed(root: string, branch: string, path: string, signal: AbortSignal | undefined): Promise<string | undefined> {
+    const result = await this.run(['cat-file', 'blob', `refs/heads/${branch}:${path}`], root, signal)
+    if (result.code === 0) return result.stdout
+    // A missing branch is an invalid object name; a path absent from the ref either "does not exist in" it
+    // or, when a file of that name is in the work tree, "exists on disk, but not in" it.
+    if (/invalid object name|does not exist in|exists on disk, but not in/.test(result.stderr)) return undefined
+    throw new Error(`git cat-file failed in ${root}: ${result.stderr.trim()}`)
   }
 }
