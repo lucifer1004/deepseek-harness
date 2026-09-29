@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/architecture/README.md
+/:
+  en: 59960d66011016ca
+  zh: 53893f9a76667097
+/deepseek-ai-dsh-experimental-architecture:
+  en: 48e09bf5e629847c
+  zh: 88aa65039bba0e71
+/deepseek-ai-dsh-experimental-architecture/summary:
+  en: 102be643b5209b75
+  zh: af53c3a91124eba2
+/deepseek-ai-dsh-experimental-architecture/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-experimental-architecture/use-this-package:
+  en: 56b5a619bc7b22b9
+  zh: afc931c9996ce542
+/deepseek-ai-dsh-experimental-architecture/use-this-package/when-to-choose-it:
+  en: 723225e88aa3fc60
+  zh: 36dcd53ee14f03db
+/deepseek-ai-dsh-experimental-architecture/use-this-package/minimal-configuration:
+  en: fcfdd48b87abb21a
+  zh: 480912fe565a3394
+/deepseek-ai-dsh-experimental-architecture/use-this-package/what-success-and-failure-look-like:
+  en: 499c3cd219dbb133
+  zh: 663e1fce7eb96fee
+/deepseek-ai-dsh-experimental-architecture/understand-the-implementation:
+  en: ce6e21532a21c0d0
+  zh: d68ec253cd21a2de
+/deepseek-ai-dsh-experimental-architecture/further-exploration:
+  en: 039b46424e26f4b9
+  zh: c36fa3c208d7a9c4
+/deepseek-ai-dsh-experimental-architecture/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-architecture/model-experience/guard-denial:
+  en: 274c4dacde93f418
+  zh: 5ca57ad9c2bd8356
+/deepseek-ai-dsh-experimental-architecture/model-experience/guard-denial/what-the-model-sees:
+  en: 13a094b4cf67229c
+  zh: 02bc4f1657e4d3f6
+/deepseek-ai-dsh-experimental-architecture/model-experience/guard-denial/token-effect:
+  en: 04c77f45e21dd5d8
+  zh: c8e8e19bee3c1064
+/deepseek-ai-dsh-experimental-architecture/model-experience/guard-denial/kv-cache-effect:
+  en: fad1ec14848aa73a
+  zh: 9b54973a858f8675
+/deepseek-ai-dsh-experimental-architecture/known-limitations-and-deferred-work:
+  en: e807dc0624dbc07c
+  zh: ae5484d49c905deb
+/deepseek-ai-dsh-experimental-architecture/known-limitations-and-deferred-work/dev-note:
+  en: 2bd79e8dee4ac6e5
+  zh: b1399ae3ad259033

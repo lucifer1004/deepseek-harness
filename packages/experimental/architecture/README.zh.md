@@ -1,0 +1,147 @@
+---
+description: "让仓库的架构文档保持权威：为其章节建立带稳定锚点与内容哈希的索引，并且只允许在主分支的主 worktree 中编辑它们。"
+kind: "package-reference"
+---
+
+# @deepseek-ai/dsh-experimental-architecture
+
+[English](README.md) | 中文
+
+## 概述
+
+在 agent 修改代码时，让仓库的架构文档保持权威。你在 `architecture.yml` manifest 中列出来源文档；本包为每个 Markdown 章节建立带 GitHub 锚点与内容哈希的索引，之后的裁定可以按确切版本引用 `path#anchor`。任何会话中的内置文件工具都不能写这些文档，本包自己的编辑路径只在主分支的主 worktree 中写入。它是拟议架构 agent 的基础，目前还没有工具或 UI。
+
+## 目录
+
+- [使用本包](#use-this-package)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## 使用本包
+
+把本包挂载在工具注册表与子进程运行时旁边，指定主分支，并在仓库根目录提交 `architecture.yml`。
+
+### 何时选择
+
+当仓库把架构保存在已提交的文档中，且 agent 不得在修改代码时顺带改动这些文档时，选择本包。没有 git 的仓库不适用，因为编辑规则与来源列举都读取 git 状态。没有本包时，架构文档只是任何文件工具都能修改的普通文件。
+
+### 最小配置
+
+在已挂载 `@deepseek-ai/dsh-tools` 与 `@deepseek-ai/dsh-subprocess-local` 的组合中加入一行：
+
+```yaml
+- id: architecture
+  name: '@deepseek-ai/dsh-experimental-architecture'
+  config:
+    mainBranch: main
+```
+
+提交一个以工作区相对 glob 列出来源文档的 manifest：
+
+```yaml
+# architecture.yml
+sources:
+  - docs/architecture.md
+  - docs/subsystems/*.md
+```
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `mainBranch` | 必填 | 只有在该分支的主 worktree checkout 中才能修改架构来源。 |
+| `manifestPath` | `architecture.yml` | manifest 的工作区相对路径。 |
+| `localDirectory` | `.architecture` | 本地架构条目的工作区相对目录；其下所有路径都受保护。 |
+| `architectPreset` | `architect` | 该 agent preset 的 agent 只能运行 `architectTools`。 |
+| `architectTools` | `[]` | `architectPreset` agent 可以运行的工具名。 |
+| `gitTimeoutMs` | `10000` | 单条 git 命令可运行的毫秒数。 |
+| `maxSourceBytes` | `1048576` | 建立索引时单个来源读取的字节上限。 |
+
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-architecture)是所有可接受字段的完整来源。
+
+### 成功与失败的表现
+
+`ctx.architecture.rebuild(cwd)` 返回包含 `cwd` 的仓库的索引；仓库没有 manifest 时返回 `undefined`；manifest 无效时抛出 `ManifestError`。过大、不可读或不是 UTF-8 的来源会出现在 `diagnostics` 中，而不会让重建失败。目标为受保护路径的 `write`、`edit` 或 `str_replace_editor` 调用会以指明该路径的错误结果失败。`ctx.architecture.edit()` 返回 `{ kind: 'written' }`，或 `kind` 为 `not-repository`、`linked-worktree`、`wrong-branch`、`not-protected` 之一的拒绝；`describeRefusal()` 把它渲染成一句话。
+
+-----
+
+<a id="understand-the-implementation"></a>
+## 理解实现
+
+<details>
+<summary>实现细节——点击展开</summary>
+
+manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成的缓存。索引总是从仓库的主 worktree 构建，因为编辑规则只允许来源在那里改变。来源发现使用 `git ls-files --cached --others --exclude-standard`，因此未跟踪但未被忽略的草稿会进入索引，被忽略的文件不会。只有 Markdown 来源会被拆分为章节。一个章节从其标题延伸到下一个任意级别的标题，因此编辑子章节不会改变父章节的哈希。锚点对标题的纯文本应用 GitHub 的 slug 规则，包括重复标题的 `-1`、`-2` 后缀；标题内的硬换行不产生空格。
+
+工具守卫是同步的，因此 checkout 发现从磁盘读取 `.git`、`commondir` 与 `HEAD`，而不运行 git。linked worktree 中受保护文件的副本同样受保护，因此 worktree 中的 worker 不能在那里修改来源再 merge 回来。在第一次重建之前，manifest 与本地目录就已受保护。比较之前，目标路径会经由符号链接祖先目录规范化。本包不发布 runtime invariant companion：服务从自己构建的索引推导受保护路径集，不存在能与之相互偏离的独立观察。
+
+| 源码 | 职责 |
+|---|---|
+| [src/index.ts](src/index.ts) | `ctx.architecture` 服务、编辑规则与工具守卫 |
+| [src/manifest.ts](src/manifest.ts) | manifest 解析与校验 |
+| [src/index-builder.ts](src/index-builder.ts) | glob 匹配与索引构建 |
+| [src/sections.ts](src/sections.ts) | Markdown 章节拆分、锚点与哈希 |
+| [src/repository.ts](src/repository.ts) | 同步 checkout 发现 |
+| [src/git-files.ts](src/git-files.ts) | 有界的 `git ls-files` 列举 |
+| [src/guard.ts](src/guard.ts) | 写入目标解析与受保护路径匹配 |
+
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## 进一步探索
+
+这些页面说明本包所属的设计以及它使用的扩展点。
+
+- [架构 agent Agent Note](../../../.agents/notes/proposed/feature/2026-09-29-architecture-agent.zh.md)——拟议的架构 agent、其会话、裁定与申诉。
+- [工具注册表](../../core/tools/README.zh.md)——工具守卫，以及拒绝如何到达模型。
+- [Agent preset 注册表](../../preset/agent-preset-registry/README.zh.md)——如何解析 agent 的组合 preset。
+- [实验包](../AGENTS.md)——`packages/experimental/` 下包的规则。
+
+-----
+
+<a id="model-experience"></a>
+## 模型体验
+
+### 守卫拒绝
+
+#### 模型看到什么
+
+当 `write`、`edit` 或 `str_replace_editor` 调用的目标是受保护路径时，工具注册表返回错误结果而不运行该工具。文本为 `<path> is an architecture source. Architecture sources change only through the architecture agent on the main branch; do not edit them directly.`，其中 `<path>` 是绝对目标路径。当以 `architectPreset` 组合的 agent 调用 `architectTools` 之外的工具时，文本为 `The <tool> tool is unavailable to the architect: it discusses and records architecture and does not change code. Use the architecture tools instead.`。
+
+#### Token 影响
+
+每次被拒绝的调用以一条约 30 token 加路径长度的简短错误结果替代工具的正常输出。被允许的调用不增加任何内容。
+
+#### KV Cache 影响
+
+拒绝是一条普通工具结果，追加在可复用历史前缀之后。本包不增加系统提示词文本或工具 schema，因此从不改变请求中更早的部分。
+
+## 已知限制与延期工作
+
+<a id="known-limitations-and-deferred-work"></a>
+
+这些限制说明本包目前不保护或尚未提供的内容。
+
+- **Shell 写入不受守卫**——`bash`、`pwsh`、终端与 `run_code` 仍可修改受保护文件；Agent Note 中拟议的 git 检查脚本是计划中的兜底。
+- **只识别内置文件工具**——守卫知道 `write`、`edit` 与 `str_replace_editor` 的参数名；其他插件的文件工具不受检查。
+- **索引仅在内存中**——来源在 `edit()` 之外改变时不会自动重建，重启后也会丢失。
+- **没有面向模型的工具、会话或仪表盘**——咨询、裁定、申诉与 Architecture Session 在 Agent Note 中拟议，尚未实现。
+- **实验原型，无稳定性承诺**——孵化期间约定仍可自由变更。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+本开发备注是维护者的工作上下文，明确不具权威性。
+
+本包是架构 agent 的里程碑 1。后续里程碑是 `architecture_edit` 与 `consult_architect` 工具、Architecture Session preset 以及仪表盘。
+
+</details>

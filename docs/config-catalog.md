@@ -867,6 +867,35 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-api-speech-to-text -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-architecture -->
+<a id="deepseek-aidsh-experimental-architecture"></a>
+
+## `@deepseek-ai/dsh-experimental-architecture`
+
+- `inject`: `subprocess` · `tools`
+- `source`: [`packages/experimental/architecture/src/types.ts:6`](../packages/experimental/architecture/src/types.ts)
+
+```ts config-catalog
+/** Plugin configuration for `ctx.architecture`. */
+export interface Config {
+  /** Branch whose primary-worktree checkout is the only place architecture sources change. */
+  mainBranch: string
+  /** Workspace-relative path of the architecture manifest. */
+  manifestPath: string
+  /** Workspace-relative directory holding local architecture entries. */
+  localDirectory: string
+  /** Agent preset whose agents may run only `architectTools`. */
+  architectPreset: string
+  /** Tool names an agent composed with `architectPreset` may run; every other call is denied. */
+  architectTools: string[]
+  /** Milliseconds a git command may run before it is terminated. */
+  gitTimeoutMs: number
+  /** Byte cap on one manifest source read while indexing. */
+  maxSourceBytes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-architecture -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp -->
 <a id="deepseek-aidsh-experimental-browser-use-chrome-devtools-mcp"></a>
 
