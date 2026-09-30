@@ -35,7 +35,7 @@ Add the bundle after `@deepseek-ai/dsh-web-app` in a Web profile's `dsh.profile.
     mainBranch: main
 ```
 
-Commit an `architecture.yml` manifest at the repository root, as the [service README](../architecture/README.md#use-this-package) describes. Start an **Architect** Session from the repository's primary worktree on the main branch to create or change the record; its edits appear as uncommitted changes for you to review and commit.
+The repository must be git or Jujutsu. To establish the record in an existing project, start an **Architect** Session from the repository's primary checkout on the branch that will hold it: the architect surveys the code and existing documents, proposes an `architecture.yml` that declares that branch and a small first document, and writes them after you agree. Its edits appear as uncommitted changes for you to review and commit; only committed sections bind workers. You can also write the manifest yourself, as the [service README](../architecture/README.md#use-this-package) describes.
 
 ### What you get
 

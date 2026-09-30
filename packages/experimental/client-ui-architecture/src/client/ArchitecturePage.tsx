@@ -115,7 +115,7 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
             {workspaces.length > 0 && (
               <WorkspacePicker workspaces={workspaces} workspaceId={workspaceId} selectWorkspace={selectWorkspace} t={t} />
             )}
-            {workspaceId !== null && (
+            {workspaceId !== null && snapshot?.unsupported === undefined && (
               <Button
                 variant="primary"
                 size="sm"
@@ -138,18 +138,20 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
                   {error !== null && <p className={css.notice} role="alert">{t('error', { message: error })}</p>}
                   {snapshot === null
                     ? error === null && <div className={css.loading} role="status" aria-label={t('section.loading')}><IconLoadingOutlineRegular className={css.spinner} /></div>
-                    : (
-                      <>
-                        <Summary snapshot={snapshot} t={t} />
-                        <SegmentedTabs items={tabs} value={view} onChange={setView} label={t('tabs.label')} />
-                        <section id="architecture-panel" role="tabpanel" aria-labelledby={`architecture-tab-${view}`} className={css.panel}>
-                          {view === 'architecture' && <IndexView {...props} workspaceId={workspaceId} snapshot={snapshot} />}
-                          {view === 'consultations' && <RulingsView snapshot={snapshot} now={now} t={t} />}
-                          {view === 'appeals' && <AppealsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
-                          {view === 'local' && <LocalView snapshot={snapshot} t={t} />}
-                        </section>
-                      </>
-                    )}
+                    : snapshot.unsupported !== undefined
+                      ? <Unsupported unsupported={snapshot.unsupported} t={t} />
+                      : (
+                        <>
+                          <Summary snapshot={snapshot} t={t} />
+                          <SegmentedTabs items={tabs} value={view} onChange={setView} label={t('tabs.label')} />
+                          <section id="architecture-panel" role="tabpanel" aria-labelledby={`architecture-tab-${view}`} className={css.panel}>
+                            {view === 'architecture' && <IndexView {...props} workspaceId={workspaceId} snapshot={snapshot} />}
+                            {view === 'consultations' && <RulingsView snapshot={snapshot} now={now} t={t} />}
+                            {view === 'appeals' && <AppealsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
+                            {view === 'local' && <LocalView snapshot={snapshot} t={t} />}
+                          </section>
+                        </>
+                      )}
                 </>
               )}
         </div>
@@ -220,6 +222,14 @@ function sourceStatus(snapshot: ArchitectureSnapshot, path: string): GitFileStat
 
 function pendingCount(snapshot: ArchitectureSnapshot | null): number {
   return snapshot?.appeals.filter(appeal => appeal.adjudication === undefined).length ?? 0
+}
+
+function Unsupported({ unsupported, t }: { unsupported: NonNullable<ArchitectureSnapshot['unsupported']>; t: Translate }): ReactNode {
+  return (
+    <p className={css.empty}>
+      {unsupported.kind === 'no-repository' ? t('unsupported.noRepository') : t('unsupported.vcsMissing', { vcs: unsupported.vcs })}
+    </p>
+  )
 }
 
 function Summary({ snapshot, t }: { snapshot: ArchitectureSnapshot; t: Translate }): ReactNode {

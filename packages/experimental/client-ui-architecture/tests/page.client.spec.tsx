@@ -146,6 +146,17 @@ describe('ArchitecturePage', () => {
     expect(screen.queryByRole('button', { name: '查看 design/arch.md#storage' })).toBeNull()
   })
 
+  it('explains a workspace outside version control and offers no discussion there', async () => {
+    const { dashboard } = fixture()
+    expect(screen.getByRole('button', { name: '讨论架构' })).toBeTruthy()
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: { ...snapshot(), unsupported: { kind: 'no-repository' } } })
+    expect(await screen.findByText(/此工作区不在 git 或 jj 仓库中/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '讨论架构' })).toBeNull()
+    expect(screen.queryByRole('tablist')).toBeNull()
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: { ...snapshot(), unsupported: { kind: 'vcs-missing', vcs: 'jj' } } })
+    expect(await screen.findByText('此工作区是 jj 仓库，但未找到 jj 可执行文件。安装后重启服务即可使用')).toBeTruthy()
+  })
+
   it('says when the repository declares no main branch', async () => {
     const { dashboard } = fixture()
     expect(screen.queryByText(/没有声明 mainBranch/)).toBeNull()

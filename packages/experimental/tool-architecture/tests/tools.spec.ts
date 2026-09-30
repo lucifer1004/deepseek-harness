@@ -150,7 +150,16 @@ describe('architect tools', () => {
     const { ctx, repo } = await boot([])
     await rm(join(repo, 'architecture.yml'))
     const architect = await agent(ctx, repo, 'architect-session', 'architect')
-    expect(await call(ctx, architect, 'architecture_index', {})).toEqual({ text: 'This workspace has no architecture manifest yet.', isError: false })
+    expect(await call(ctx, architect, 'architecture_index', {}))
+      .toEqual({ text: `${ArchitectTools.COLD_START_GUIDANCE}\n\nThis is the primary git checkout; it is on \`main\`.`, isError: false })
+    const empty = { hasManifest: false, sources: [], sections: [], diagnostics: [] }
+    expect(ArchitectTools.renderIndex(empty)).toBe(ArchitectTools.COLD_START_GUIDANCE)
+    const cold = (checkout: { vcs: string; isPrimary: boolean; branches: string[] }): string =>
+      ArchitectTools.renderIndex({ ...empty, checkout }).slice(ArchitectTools.COLD_START_GUIDANCE.length + 2)
+    expect(cold({ vcs: 'jj', isPrimary: true, branches: ['main', 'wip'] })).toBe('This is the primary jj workspace; it is on `main`, `wip`.')
+    expect(cold({ vcs: 'jj', isPrimary: false, branches: [] })).toBe('This is not the primary jj workspace, so nothing can be written from here; '
+      + 'it is on no bookmark (none points to @ or @-); ask the user which to use.')
+    expect(cold({ vcs: 'git', isPrimary: true, branches: [] })).toBe('This is the primary git checkout; it is on no branch (detached HEAD); ask the user which to use.')
   })
 
   it('keeps generic write tools unavailable to an architect-preset Session', async () => {
@@ -291,6 +300,22 @@ describe('consult_architect', () => {
     await waitFor(async () => (await ctx.architecture.snapshot(repo)).appeals[0]?.delivered === true ? true : undefined)
     await revived.whenIdle()
     expect(JSON.stringify(adapter.requests.at(-1)?.messages)).toContain(`The user upheld Ruling ${rulingId} on your appeal ${appealId}. Keep following its constraints.`)
+  })
+
+  it('hides the worker tools and guidance from a Session outside version control', async () => {
+    const { ctx, repo } = await boot([])
+    const outside = await realpath(await mkdtemp(join(tmpdir(), 'dsh-tool-architecture-outside-')))
+    cleanups.push(() => rm(outside, { recursive: true, force: true }))
+    const inside = await agent(ctx, repo, 'inside', 'coding')
+    const plain = await agent(ctx, outside, 'plain', 'coding')
+    const names = (target: Agent): string[] => ctx.tools.schemas(target).map(schema => schema.name)
+    expect(names(inside)).toEqual(expect.arrayContaining(['consult_architect', 'appeal_ruling']))
+    expect(names(plain)).not.toContain('consult_architect')
+    expect(names(plain)).not.toContain('appeal_ruling')
+    expect(names(plain)).toContain('read')
+    const prompt = async (target: Agent): Promise<string> => (await ctx.systemPrompt.assemble({ scope: target })).sections.map(section => section.text).join('\n')
+    expect(await prompt(inside)).toContain('call `consult_architect`')
+    expect(await prompt(plain)).not.toContain('call `consult_architect`')
   })
 
   it('renders a consultation without a Ruling', () => {

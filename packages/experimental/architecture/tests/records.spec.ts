@@ -145,7 +145,32 @@ describe('architecture records', () => {
     const snapshot = await ctx.architecture.snapshot(repo)
     expect(changes).toEqual([repo])
     expect(snapshot).toMatchObject({ hasManifest: false, revision: 'empty', index: { sources: [], sections: [] }, localEntries: [] })
-    await expect(ctx.architecture.snapshot(await scratch())).rejects.toThrow(/not inside a git checkout/)
+    const outside = await scratch()
+    expect(await ctx.architecture.snapshot(outside)).toMatchObject({ root: outside, unsupported: { kind: 'no-repository' }, hasManifest: false, rulings: [] })
+    expect(await ctx.architecture.snapshot(outside)).not.toHaveProperty('vcs')
+  })
+
+  it('reports a repository whose version-control executable is not installed', async () => {
+    const ctx = new Context()
+    cleanups.push(() => ctx.fiber.dispose())
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const resolve = ctx.subprocess.resolveExecutable.bind(ctx.subprocess)
+    vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command, env, signal) => {
+      if (command === 'jj' || command === 'git') throw new Error(`${command}: not found`)
+      return await resolve(command, env, signal)
+    })
+    await ctx.plugin(ArchitectureService, { mainBranch: 'main' } as Config)
+    const repo = await scratch()
+    await mkdir(join(repo, '.jj', 'repo'), { recursive: true })
+    expect(await ctx.architecture.snapshot(repo)).toMatchObject({ unsupported: { kind: 'vcs-missing', vcs: 'jj' }, hasManifest: false })
+    expect(ctx.architecture.checkout(repo)).toBeUndefined()
+    expect(ctx.architecture.isProtected(join(repo, 'architecture.yml'))).toBe(false)
+    await expect(ctx.architecture.rebuild(repo)).rejects.toThrow(/is a jj checkout, but jj is not installed/)
+    const gitRepo = await scratch()
+    git(gitRepo, 'init', '-q', '-b', 'main')
+    expect(await ctx.architecture.snapshot(gitRepo)).toMatchObject({ unsupported: { kind: 'vcs-missing', vcs: 'git' } })
   })
 
   it('accepts an uncommitted section at its reviewed hash only', async () => {

@@ -159,9 +159,42 @@ describe('ArchitectureService', () => {
     const ctx = await boot()
     expect(ctx.architecture.index(outside)).toBeUndefined()
     expect(ctx.architecture.isProtected(join(outside, 'architecture.yml'))).toBe(false)
-    await expect(ctx.architecture.rebuild(outside)).rejects.toThrow(/not inside a git checkout/)
+    await expect(ctx.architecture.rebuild(outside)).rejects.toThrow(/not inside a git or jj checkout/)
+    expect(ctx.architecture.checkout(outside)).toBeUndefined()
     const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('c2'), name: 'write', arguments: { file_path: join(outside, 'x') } })
     expect(result.content[0]).toEqual({ type: 'text', text: 'ran:write' })
+  })
+
+  it('establishes a first manifest on the branch it declares, then protects every path its globs match', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-architecture-cold-')))
+    cleanups.push(() => rm(root, { recursive: true, force: true }))
+    await writeFile(join(root, 'code.ts'), 'x\n')
+    git(root, 'init', '-q', '-b', 'trunk')
+    git(root, 'add', '-A')
+    git(root, 'commit', '-q', '-m', 'init')
+    const ctx = await boot({ mainBranch: null })
+    const manifest = (branch: string): string => `mainBranch: ${branch}\nsources:\n  - docs/**/*.md\nexclude:\n  - docs/drafts/**\n`
+
+    // Without a main branch, only a manifest declaring the checkout's own branch may be written.
+    expect(await ctx.architecture.edit({ cwd: root, path: 'docs/architecture.md', content: '# A\n' }))
+      .toMatchObject({ refusal: { kind: 'no-main-branch' } })
+    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: 'sources: [docs/*.md]\n' }))
+      .toMatchObject({ refusal: { kind: 'no-main-branch' } })
+    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: manifest('main') }))
+      .toMatchObject({ refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
+    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: manifest('trunk') }))
+      .toEqual({ kind: 'written', path: 'architecture.yml' })
+    expect(await ctx.architecture.rebuild(root)).toMatchObject({ sources: [] })
+
+    // A source that does not exist yet is protected from file tools, and the architect may create it.
+    const worker = await agent(ctx, root)
+    expect(await run(ctx, worker, 'write', { file_path: 'docs/sub/new.md' })).toMatch(/is an architecture source/)
+    expect(await run(ctx, worker, 'write', { file_path: 'docs/drafts/x.md' })).toBe('ran:write')
+    expect(await run(ctx, worker, 'write', { file_path: 'code.ts' })).toBe('ran:write')
+    expect(await ctx.architecture.edit({ cwd: root, path: 'docs/sub/new.md', content: '# New\n' })).toEqual({ kind: 'written', path: 'docs/sub/new.md' })
+    expect(ctx.architecture.index(root)?.sources).toEqual(['docs/sub/new.md'])
+    expect(await ctx.architecture.edit({ cwd: root, path: 'docs/drafts/x.md', content: 'x' })).toMatchObject({ refusal: { kind: 'not-protected' } })
+    expect(await ctx.architecture.checkEdit(root, 'architecture.yml')).toBeUndefined()
   })
 
   it('protects a linked worktree copy of a source outside the primary index directory', async () => {
@@ -203,11 +236,12 @@ describe('ArchitectureService', () => {
 
     git(repo, 'checkout', '-q', '-b', 'side')
     const wrong = await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' })
-    expect(wrong).toEqual({ kind: 'refused', refusal: { kind: 'wrong-branch', branch: 'side', mainBranch: 'main' } })
+    expect(wrong).toEqual({ kind: 'refused', refusal: { kind: 'wrong-branch', vcs: 'git', branch: 'side', mainBranch: 'main' } })
     if (wrong.kind === 'refused') expect(describeRefusal(wrong.refusal)).toMatch(/branch main/)
     git(repo, 'checkout', '-q', '--detach')
     const detached = await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' })
     if (detached.kind === 'refused') expect(describeRefusal(detached.refusal)).toMatch(/detached HEAD/)
+    expect(await ctx.architecture.currentBranches(repo)).toEqual({ vcs: 'git', isPrimary: true, branches: [] })
   })
 
   it('takes the main branch from the manifest before the service default, and refuses edits without one', async () => {

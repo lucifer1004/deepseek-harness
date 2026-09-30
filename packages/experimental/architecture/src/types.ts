@@ -77,15 +77,20 @@ export interface ArchitectureIndex {
   readonly diagnostics: readonly IndexDiagnostic[]
 }
 
+/** Version-control system of a checkout. A colocated Jujutsu repository is `jj`. */
+export type VcsKind = 'git' | 'jj'
+
 /** The repository checkout a Session works in. */
 export interface CheckoutState {
+  /** Version-control system that owns the checkout. */
+  readonly vcs: VcsKind
   /** Canonical top-level directory of this checkout. */
   readonly root: string
-  /** Canonical top-level directory of the repository's primary worktree. */
+  /** Canonical top-level directory of the repository's primary worktree or primary jj workspace. */
   readonly primaryRoot: string
-  /** Whether this checkout is the primary worktree. */
+  /** Whether this checkout is the primary worktree or primary jj workspace. */
   readonly isPrimary: boolean
-  /** Checked-out branch name, or undefined on a detached `HEAD`. */
+  /** Checked-out git branch, or undefined on a detached `HEAD` and in a jj workspace, which has no current branch. */
   readonly branch: string | undefined
 }
 
@@ -93,7 +98,7 @@ export interface CheckoutState {
 export type EditRefusal =
   | { readonly kind: 'not-repository'; readonly cwd: string }
   | { readonly kind: 'linked-worktree'; readonly root: string; readonly primaryRoot: string }
-  | { readonly kind: 'wrong-branch'; readonly branch: string | undefined; readonly mainBranch: string }
+  | { readonly kind: 'wrong-branch'; readonly vcs: VcsKind; readonly branch: string | undefined; readonly mainBranch: string }
   | { readonly kind: 'no-main-branch'; readonly manifestPath: string }
   | { readonly kind: 'not-protected'; readonly path: string }
   | { readonly kind: 'unknown-section'; readonly path: string; readonly anchor: string }
@@ -261,14 +266,14 @@ export interface Acceptance {
   readonly acceptedAt: number
 }
 
-/** Git state of one architecture file in the primary worktree. */
+/** Version-control state of one architecture file in the primary worktree, relative to its committed version. */
 export type GitFileStatus = 'committed' | 'modified' | 'untracked' | 'ignored'
 
 /** One file under the local architecture directory. */
 export interface LocalEntry {
   /** Repository-relative path. */
   readonly path: string
-  /** Git state in the primary worktree. */
+  /** Version-control state in the primary worktree. */
   readonly status: GitFileStatus
 }
 
@@ -276,6 +281,10 @@ export interface LocalEntry {
 export interface ArchitectureSnapshot {
   /** Canonical primary-worktree root. */
   readonly root: string
+  /** Version-control system of the repository; absent when `unsupported` is set. */
+  readonly vcs?: VcsKind
+  /** Why the directory has no architecture state: it is outside git and jj, or its system's executable is missing. */
+  readonly unsupported?: { readonly kind: 'no-repository' } | { readonly kind: 'vcs-missing'; readonly vcs: VcsKind }
   /** The repository's main branch, from its manifest or the service default; absent when neither names one. */
   readonly mainBranch?: string
   /** Configured manifest path, relative to the repository root. */
@@ -288,7 +297,7 @@ export interface ArchitectureSnapshot {
   readonly revision: string
   /** The index, empty without a manifest. */
   readonly index: ArchitectureIndex
-  /** Git state of each indexed source. */
+  /** Version-control state of each indexed source. */
   readonly sourceStatus: Readonly<Record<string, GitFileStatus>>
   /** Recorded Rulings, newest first, each with whether a cited section changed since issue. */
   readonly rulings: ReadonlyArray<RulingRecord & { readonly stale: boolean }>

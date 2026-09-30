@@ -6,8 +6,10 @@
  */
 
 import { realpathSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import { matchSources } from './index-builder.ts'
+import type { ArchitectureManifest } from './types.ts'
 
 /** Built-in tools whose arguments name one file they write. */
 const PATH_ARGUMENT: Readonly<Record<string, string>> = {
@@ -89,16 +91,25 @@ export interface ProtectedPaths {
   readonly files: ReadonlySet<string>
   /** Canonical absolute path of the local architecture directory. */
   readonly localDirectory: string
+  /** Source and exclude globs; a path they match is protected before it exists or is indexed. */
+  readonly sources?: Pick<ArchitectureManifest, 'sources' | 'exclude'> | undefined
 }
 
 /**
  * Whether an absolute, canonical path is protected.
  * @param target - canonical absolute path.
  * @param paths - protected paths of one repository.
- * @returns true for a manifest source, the manifest, or a path under the local directory.
+ * @returns true for a manifest source, a path its globs match, the manifest, or a path under the local directory.
  */
 export function isProtected(target: string, paths: ProtectedPaths): boolean {
   if (paths.files.has(target)) return true
-  const underLocal = relative(paths.localDirectory, target)
-  return underLocal === '' || (underLocal !== '..' && !underLocal.startsWith(`..${sep}`) && !isAbsolute(underLocal))
+  if (inside(paths.localDirectory, target) !== undefined) return true
+  const path = inside(paths.root, target)
+  return paths.sources !== undefined && path !== undefined && path !== '' && matchSources([path.split(sep).join(posix.sep)], paths.sources).length > 0
+}
+
+/** The path of `target` relative to `root`, or undefined when it lies outside. */
+function inside(root: string, target: string): string | undefined {
+  const path = relative(root, target)
+  return path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path) ? undefined : path
 }

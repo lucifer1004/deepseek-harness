@@ -24,6 +24,15 @@ export const ARCHITECT_POLICY = [
   'When you state a binding requirement, cite the section that establishes it as `path#anchor`. A judgment without such a section is an open question for the user, not a requirement.',
 ].join('\n\n')
 
+/** Model-facing guidance for a workspace without a manifest, returned by `architecture_index`. */
+export const COLD_START_GUIDANCE = [
+  'This workspace has no architecture manifest yet. To establish the record with the user:',
+  '1. Survey the code and existing design documents (README, ADRs, design notes) with the read and search tools.',
+  '2. Propose the manifest: `mainBranch`, the branch or jj bookmark the record is committed on, which must be one the checkout is on now (listed below), and `sources`, globs of the documents that hold the architecture; list suitable existing documents instead of copying them.',
+  '3. Propose a small first document for what no existing document states: module boundaries, dependency direction, extension points, and data ownership. Grow it later from the unresolved points of consultations.',
+  '4. After the user agrees, write the manifest first with `architecture_edit`, then each new document, and ask the user to review and commit them. Only committed sections can be cited in Rulings.',
+].join('\n')
+
 function sessionCwd(exec: ToolRunContext): string {
   const cwd = exec.agent?.session.header.cwd
   if (cwd === undefined) throw new Error('the calling Session has no working directory')
@@ -49,11 +58,23 @@ const SECTION_ROW = {
  */
 export function renderIndex(value: {
   hasManifest: boolean
+  checkout?: { vcs: string; isPrimary: boolean; branches: readonly string[] } | undefined
   sources: readonly string[]
   sections: ReadonlyArray<{ cite: string; title: string; level: number; line: number; hash: string }>
   diagnostics: readonly string[]
 }): string {
-  if (!value.hasManifest) return 'This workspace has no architecture manifest yet.'
+  if (!value.hasManifest) {
+    const checkout = value.checkout
+    if (checkout === undefined) return COLD_START_GUIDANCE
+    const kind = checkout.vcs === 'jj' ? 'jj workspace' : 'git checkout'
+    const where = checkout.isPrimary
+      ? `This is the primary ${kind}`
+      : `This is not the primary ${kind}, so nothing can be written from here`
+    const on = checkout.branches.length === 0
+      ? `it is on no ${checkout.vcs === 'jj' ? 'bookmark (none points to @ or @-)' : 'branch (detached HEAD)'}; ask the user which to use`
+      : `it is on ${checkout.branches.map(name => `\`${name}\``).join(', ')}`
+    return `${COLD_START_GUIDANCE}\n\n${where}; ${on}.`
+  }
   return [
     `${value.sources.length} source(s), ${value.sections.length} section(s).`,
     ...value.sections.map((section) => {
@@ -87,6 +108,15 @@ export function apply(ctx: Context): void {
         additionalProperties: false,
         properties: {
           hasManifest: { type: 'boolean', required: true },
+          checkout: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              vcs: { type: 'string', required: true },
+              isPrimary: { type: 'boolean', required: true },
+              branches: { type: 'array', required: true, items: { type: 'string' } },
+            },
+          },
           sources: { type: 'array', required: true, items: { type: 'string' } },
           sections: { type: 'array', required: true, items: SECTION_ROW },
           diagnostics: { type: 'array', required: true, items: { type: 'string' } },
@@ -95,8 +125,13 @@ export function apply(ctx: Context): void {
       render: (_args, value) => [{ type: 'text', text: renderIndex(value) }],
     },
     async execute(args, exec) {
-      const index = await ctx.architecture.rebuild(sessionCwd(exec), exec.signal)
-      if (index === undefined) return { hasManifest: false, sources: [], sections: [], diagnostics: [] }
+      const cwd = sessionCwd(exec)
+      const index = await ctx.architecture.rebuild(cwd, exec.signal)
+      if (index === undefined) {
+        const checkout = await ctx.architecture.currentBranches(cwd, exec.signal)
+        const branches = [...checkout.branches]
+        return { hasManifest: false, checkout: { ...checkout, branches }, sources: [], sections: [], diagnostics: [] }
+      }
       const sections = index.sections.filter(section => args.path === undefined || section.path === args.path)
       return {
         hasManifest: true,

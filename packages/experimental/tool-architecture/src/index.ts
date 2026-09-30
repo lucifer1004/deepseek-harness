@@ -39,6 +39,9 @@ const CITATION_SCHEMA = {
 /** Worker tool that asks the architect; its visibility also gates the worker guidance. */
 const CONSULT_ARCHITECT_TOOL = 'consult_architect'
 
+/** Worker tool that appeals a Ruling. */
+const APPEAL_RULING_TOOL = 'appeal_ruling'
+
 /** Canonical `consult_architect` value. */
 const CONSULT_OUTPUT = {
   type: 'object',
@@ -151,6 +154,13 @@ export function apply(ctx: Context): void {
       ctx.logger.warn(`architecture: recording Ruling ${record.result.ruling.id} failed: ${String(error)}`)
     })
   })
+  // A Session outside a git or jj checkout cannot consult or appeal, so it sees neither tool nor their guidance.
+  ctx.on('agent/created', ({ agent }) => {
+    const cwd = agent.session.header.cwd
+    if (cwd !== undefined && ctx.architecture.checkout(cwd) !== undefined) return undefined
+    agent.ctx.effect(() => agent.ctx.tools.restrict({ deny: [CONSULT_ARCHITECT_TOOL, APPEAL_RULING_TOOL] }), 'architecture: worker tools outside version control')
+    return undefined
+  })
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'tool:consult-architect',
     order: ctx.systemPrompt.getSectionOrder('TOOL_SUBAGENT'),
@@ -179,7 +189,7 @@ export function apply(ctx: Context): void {
     },
   })), 'architecture: consult_architect')
   ctx.effect(() => ctx.tools.register(defineTool({
-    name: 'appeal_ruling',
+    name: APPEAL_RULING_TOOL,
     description: 'Appeal a Ruling you received from consult_architect when you have concrete evidence that one of its constraints is wrong for your change. The user decides; you receive the decision as a message. The Ruling stays binding until then.',
     parameters: {
       rulingId: { type: 'string', required: true, description: 'The Ruling id from the consult_architect result.' },

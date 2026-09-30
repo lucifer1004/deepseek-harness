@@ -116,8 +116,8 @@ describe('locateCheckout', () => {
     git(repo, 'commit', '-q', '-m', 'init')
     git(repo, 'worktree', 'add', '-q', '-b', 'topic', join(root, 'linked'))
 
-    expect(locateCheckout(join(repo, 'missing', 'file.md'))).toEqual({ root: repo, primaryRoot: repo, isPrimary: true, branch: 'main' })
-    expect(locateCheckout(join(root, 'linked'))).toEqual({ root: join(root, 'linked'), primaryRoot: repo, isPrimary: false, branch: 'topic' })
+    expect(locateCheckout(join(repo, 'missing', 'file.md'))).toEqual({ vcs: 'git', root: repo, primaryRoot: repo, isPrimary: true, branch: 'main' })
+    expect(locateCheckout(join(root, 'linked'))).toEqual({ vcs: 'git', root: join(root, 'linked'), primaryRoot: repo, isPrimary: false, branch: 'topic' })
     git(repo, 'checkout', '-q', '--detach')
     expect(locateCheckout(repo)?.branch).toBeUndefined()
     expect(locateCheckout(root)).toBeUndefined()

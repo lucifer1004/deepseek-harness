@@ -35,7 +35,7 @@ kind: "package-bundle"
     mainBranch: main
 ```
 
-按照[服务 README](../architecture/README.zh.md#use-this-package) 的说明，在仓库根目录提交 `architecture.yml` manifest。在主分支上的仓库主 worktree 中启动 **Architect** 会话来创建或修改记录；它的编辑以未提交修改的形式出现，由你审阅并提交。
+仓库必须是 git 或 Jujutsu。要在已有项目中建立记录，请在仓库主 checkout 中、位于将持有记录的分支上启动 **Architect** 会话：架构师调查代码与现有文档，提出一份声明该分支的 `architecture.yml` 和一份精简的首个文档，并在你同意后写入它们。它的编辑以未提交修改的形式出现，由你审阅并提交；只有已提交的章节才约束 worker。你也可以按照[服务 README](../architecture/README.zh.md#use-this-package) 的说明自己编写 manifest。
 
 ### 你会得到什么
 

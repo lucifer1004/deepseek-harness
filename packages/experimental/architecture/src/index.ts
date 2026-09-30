@@ -22,6 +22,7 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { runConsultation, SUBMIT_RULING_TOOL } from './consultation.ts'
 import { GitFiles } from './git-files.ts'
 import { canonicalizeForWrite, isProtected, writeCall, writeTarget, type ProtectedPaths } from './guard.ts'
+import { JjFiles } from './jj-files.ts'
 import { buildIndex } from './index-builder.ts'
 import { declaredMainBranch, parseManifest } from './manifest.ts'
 import { locateCheckout } from './repository.ts'
@@ -33,6 +34,7 @@ import type {
   ArchitectureEditResult,
   ArchitectureIndex,
   ArchitectureManifest,
+  CheckoutState,
   Config,
   Acceptance,
   Adjudication,
@@ -48,7 +50,9 @@ import type {
   RulingRecord,
   RulingStatus,
   SourcePath,
+  VcsKind,
 } from './types.ts'
+import type { VcsFiles } from './vcs.ts'
 
 export type * from './types.ts'
 export { ManifestError } from './manifest.ts'
@@ -63,7 +67,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Byte cap on `git ls-files` output for one checkout. */
+/** Byte cap on `git ls-files` or `jj file list` output for one checkout. */
 const LIST_OUTPUT_MAX_BYTES = 32 * 1024 * 1024
 
 /** A loaded manifest and the index built from it for one repository root. */
@@ -170,13 +174,15 @@ function relativeInside(root: string, target: string): string | undefined {
 export function describeRefusal(refusal: EditRefusal): string {
   switch (refusal.kind) {
     case 'not-repository':
-      return `${refusal.cwd} is not inside a git checkout, so the main-branch edit rule cannot be satisfied`
+      return `${refusal.cwd} is not inside a git or jj checkout, so the main-branch edit rule cannot be satisfied`
     case 'linked-worktree':
-      return `architecture sources change only in the primary worktree ${refusal.primaryRoot}, not in the linked worktree ${refusal.root}`
+      return `architecture sources change only in the primary checkout ${refusal.primaryRoot}, not in ${refusal.root}`
     case 'no-main-branch':
       return `architecture sources cannot change until ${refusal.manifestPath} declares mainBranch, the branch whose primary worktree changes them`
     case 'wrong-branch':
-      return `architecture sources change only on branch ${refusal.mainBranch}; the checkout is on ${refusal.branch ?? 'a detached HEAD'}`
+      return refusal.vcs === 'jj'
+        ? `architecture sources change only on bookmark ${refusal.mainBranch}; the working-copy commit is neither ${refusal.mainBranch} nor its child`
+        : `architecture sources change only on branch ${refusal.mainBranch}; the checkout is on ${refusal.branch ?? 'a detached HEAD'}`
     case 'not-protected':
       return `${refusal.path} is neither an architecture source, the manifest, nor a path under the local architecture directory`
     case 'unknown-section':
@@ -232,7 +238,7 @@ export class ArchitectureService extends Service {
   private readonly writes = new Map<string, Promise<unknown>>()
   /** Lifts the tool mask of each agent currently composed with the architect preset. */
   private readonly masks = new WeakMap<Agent, () => void>()
-  private files: GitFiles | undefined
+  private readonly files: Partial<Record<VcsKind, VcsFiles>> = {}
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'architecture')
@@ -263,13 +269,42 @@ export class ArchitectureService extends Service {
     })
   }
 
-  /** Resolve git once; the service cannot list sources without it. */
+  /** Resolve git and jj once. A repository whose version-control executable is missing is unsupported. */
   async [Service.init](): Promise<void> {
-    const executable = await this.ctx.subprocess.resolveExecutable('git')
-    this.files = new GitFiles(this.ctx.subprocess, executable, {
-      timeoutMs: this.config.gitTimeoutMs,
-      outputMaxBytes: LIST_OUTPUT_MAX_BYTES,
-    })
+    const limits = { timeoutMs: this.config.gitTimeoutMs, outputMaxBytes: LIST_OUTPUT_MAX_BYTES }
+    const resolve = async (command: string): Promise<string | undefined> => {
+      try {
+        return await this.ctx.subprocess.resolveExecutable(command)
+      } catch {
+        // resolveExecutable failed: the executable is not installed, so repositories of that kind are unsupported.
+        return undefined
+      }
+    }
+    const [git, jj] = await Promise.all([resolve('git'), resolve('jj')])
+    if (git !== undefined) this.files.git = new GitFiles(this.ctx.subprocess, git, limits)
+    if (jj !== undefined) this.files.jj = new JjFiles(this.ctx.subprocess, jj, limits)
+  }
+
+  /**
+   * The version control of the checkout containing a directory, and the branches it is on now.
+   * @param cwd - absolute directory inside the checkout.
+   * @param signal - cancels a jj query.
+   * @returns the system, whether the checkout is the primary one, and its current branch or bookmark names.
+   * @throws when `cwd` is not inside a usable git or jj checkout, or version control fails.
+   */
+  async currentBranches(cwd: string, signal?: AbortSignal): Promise<{ vcs: VcsKind; isPrimary: boolean; branches: readonly string[] }> {
+    const checkout = this.requireCheckout(cwd)
+    return { vcs: checkout.vcs, isPrimary: checkout.isPrimary, branches: await this.filesOf(checkout).currentBranches(checkout, signal) }
+  }
+
+  /**
+   * The checkout containing a directory, when the service can read its version control.
+   * @param cwd - absolute directory.
+   * @returns the checkout, or undefined outside git and jj or when that system's executable is not installed.
+   */
+  checkout(cwd: string): CheckoutState | undefined {
+    const checkout = locateCheckout(cwd)
+    return checkout !== undefined && this.files[checkout.vcs] !== undefined ? checkout : undefined
   }
 
   /**
@@ -280,11 +315,10 @@ export class ArchitectureService extends Service {
    * @param signal - cancels the rebuild.
    * @returns the rebuilt index, or undefined when the repository has no manifest.
    * @throws {ManifestError} for a manifest that violates the manifest schema.
-   * @throws when `cwd` is not inside a git checkout, or git fails.
+   * @throws when `cwd` is not inside a git or jj checkout, or version control fails.
    */
   async rebuild(cwd: string, signal?: AbortSignal): Promise<ArchitectureIndex | undefined> {
-    const checkout = locateCheckout(cwd)
-    if (checkout === undefined) throw new Error(`architecture: ${cwd} is not inside a git checkout`)
+    const checkout = this.requireCheckout(cwd)
     const root = checkout.primaryRoot
     const manifestFile = join(root, this.config.manifestPath)
     const protectedBase: ProtectedPaths = {
@@ -301,7 +335,7 @@ export class ArchitectureService extends Service {
       return undefined
     }
     const manifest = parseManifest(await readFile(manifestFile, 'utf8'), this.config.manifestPath)
-    const files = this.requireFiles()
+    const files = this.filesOf(checkout)
     const index = await buildIndex({
       root,
       manifest,
@@ -311,7 +345,7 @@ export class ArchitectureService extends Service {
     })
     const protectedFiles = new Set(protectedBase.files)
     for (const source of index.sources) protectedFiles.add(canonicalizeForWrite(join(root, source)))
-    this.roots.set(root, { manifest, index, protectedPaths: { ...protectedBase, files: protectedFiles } })
+    this.roots.set(root, { manifest, index, protectedPaths: { ...protectedBase, files: protectedFiles, sources: manifest } })
     const revision = indexRevision(index)
     if (this.revisions.get(root) !== revision) {
       this.revisions.set(root, revision)
@@ -339,7 +373,7 @@ export class ArchitectureService extends Service {
    */
   isProtected(path: string): boolean {
     const target = canonicalizeForWrite(path)
-    const checkout = locateCheckout(target)
+    const checkout = this.checkout(target)
     if (checkout === undefined) return false
     for (const root of new Set([checkout.root, checkout.primaryRoot])) {
       const state = this.roots.get(root)
@@ -361,9 +395,9 @@ export class ArchitectureService extends Service {
    * @returns the written path, or the refusal.
    */
   async edit(request: ArchitectureEditRequest): Promise<ArchitectureEditResult> {
-    const refusal = this.checkEdit(request.cwd, request.path)
+    const refusal = await this.checkEdit(request.cwd, request.path, request.content, request.signal)
     if (refusal !== undefined) return { kind: 'refused', refusal }
-    const checkout = locateCheckout(request.cwd)
+    const checkout = this.checkout(request.cwd)
     /* v8 ignore next -- checkEdit refuses a missing checkout. */
     if (checkout === undefined) return { kind: 'refused', refusal: { kind: 'not-repository', cwd: request.cwd } }
     const target = canonicalizeForWrite(resolve(checkout.root, request.path))
@@ -446,7 +480,7 @@ export class ArchitectureService extends Service {
       signal: request.signal,
     })
     if (outcome.kind !== 'submitted') return { kind: outcome.kind, id: outcome.id, session: outcome.session }
-    const files = this.requireFiles()
+    const files = this.filesOf(this.requireCheckout(index.root))
     const accepted = await this.acceptedKeys(index.root)
     const mainBranch = this.mainBranchOf(index.root)
     const ruling = await validateRuling(
@@ -549,7 +583,7 @@ export class ArchitectureService extends Service {
    */
   async deliverPending(agent: Agent): Promise<void> {
     const cwd = agent.session.header.cwd
-    const checkout = cwd === undefined ? undefined : locateCheckout(cwd)
+    const checkout = cwd === undefined ? undefined : this.checkout(cwd)
     if (checkout === undefined) return
     const records = await this.store(checkout.primaryRoot).read()
     for (const appeal of records.appeals.values()) {
@@ -589,18 +623,38 @@ export class ArchitectureService extends Service {
    * Read the whole dashboard state of a repository. Rebuilds the index first.
    * @param cwd - any directory inside the repository.
    * @param signal - cancels the rebuild and git reads.
-   * @returns the snapshot.
-   * @throws for an invalid manifest, a directory outside git, or a git failure.
+   * @returns the snapshot; outside a usable git or jj checkout, an empty snapshot with `unsupported` set.
+   * @throws for an invalid manifest or a version-control failure.
    */
   async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot> {
-    const root = this.primaryRoot(cwd)
+    const found = locateCheckout(cwd)
+    if (found === undefined || this.files[found.vcs] === undefined) {
+      const unsupported = found === undefined ? { kind: 'no-repository' as const } : { kind: 'vcs-missing' as const, vcs: found.vcs }
+      return {
+        root: canonicalizeForWrite(cwd),
+        unsupported,
+        manifestPath: this.config.manifestPath,
+        localDirectory: this.config.localDirectory,
+        hasManifest: false,
+        revision: EMPTY_REVISION,
+        index: { root: canonicalizeForWrite(cwd), sources: [], sections: [], diagnostics: [] },
+        sourceStatus: {},
+        rulings: [],
+        appeals: [],
+        acceptances: [],
+        localEntries: [],
+        problems: [],
+      }
+    }
+    const checkout = found
+    const root = checkout.primaryRoot
     const built = await this.rebuild(root, signal)
     const index = built ?? { root, sources: [], sections: [], diagnostics: [] }
     const revision = built === undefined ? EMPTY_REVISION : indexRevision(built)
     const localEntries = await this.localEntries(root)
     const records = await this.store(root).read()
     const mainBranch = this.mainBranchOf(root)
-    const status = await this.requireFiles().status(root, [...index.sources, ...localEntries], signal)
+    const status = await this.filesOf(checkout).status(root, mainBranch, [...index.sources, ...localEntries], signal)
     const gitStatus = (path: string): GitFileStatus => status.get(path) ?? 'committed'
     const current = new Map(index.sections.map(section => [`${section.path}#${section.anchor}`, section.hash]))
     const rulings = [...records.rulings.values()]
@@ -614,6 +668,7 @@ export class ArchitectureService extends Service {
       Number(a.adjudication !== undefined) - Number(b.adjudication !== undefined) || b.filedAt - a.filedAt)
     return {
       root,
+      vcs: checkout.vcs,
       ...(mainBranch === undefined ? {} : { mainBranch }),
       manifestPath: this.config.manifestPath,
       localDirectory: this.config.localDirectory,
@@ -630,19 +685,30 @@ export class ArchitectureService extends Service {
   }
 
   /**
-   * Evaluate the edit rule without writing.
+   * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
+   * manifest: `content` written to the manifest path that declares the branch the checkout is on.
    * @param cwd - Session directory.
    * @param path - target, relative to the repository root or absolute.
+   * @param content - the content {@link edit} would write; only a first manifest reads it.
+   * @param signal - cancels a jj branch query.
    * @returns the refusal, or undefined when {@link edit} would write.
    */
-  checkEdit(cwd: string, path: string): EditRefusal | undefined {
-    const checkout = locateCheckout(cwd)
+  async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined> {
+    const checkout = this.checkout(cwd)
     if (checkout === undefined) return { kind: 'not-repository', cwd }
     if (!checkout.isPrimary) return { kind: 'linked-worktree', root: checkout.root, primaryRoot: checkout.primaryRoot }
-    const mainBranch = this.mainBranchOf(checkout.primaryRoot)
-    if (mainBranch === undefined) return { kind: 'no-main-branch', manifestPath: this.config.manifestPath }
-    if (checkout.branch !== mainBranch) return { kind: 'wrong-branch', branch: checkout.branch, mainBranch }
     const target = canonicalizeForWrite(resolve(checkout.root, path))
+    const files = this.filesOf(checkout)
+    let mainBranch = this.mainBranchOf(checkout.primaryRoot)
+    const manifest = canonicalizeForWrite(join(checkout.root, this.config.manifestPath))
+    if (mainBranch === undefined && target === manifest && content !== undefined) {
+      // A first manifest establishes the branch it declares, so the checkout must already be on it.
+      mainBranch = declaredMainBranch(content)
+    }
+    if (mainBranch === undefined) return { kind: 'no-main-branch', manifestPath: this.config.manifestPath }
+    if (!await files.onBranch(checkout, mainBranch, signal)) {
+      return { kind: 'wrong-branch', vcs: checkout.vcs, branch: checkout.branch, mainBranch }
+    }
     if (relativeInside(checkout.root, target) === undefined || !this.isProtected(target)) {
       return { kind: 'not-protected', path }
     }
@@ -665,9 +731,21 @@ export class ArchitectureService extends Service {
   }
 
   private primaryRoot(cwd: string): string {
+    return this.requireCheckout(cwd).primaryRoot
+  }
+
+  private requireCheckout(cwd: string): CheckoutState {
     const checkout = locateCheckout(cwd)
-    if (checkout === undefined) throw new Error(`architecture: ${cwd} is not inside a git checkout`)
-    return checkout.primaryRoot
+    if (checkout === undefined) throw new Error(`architecture: ${cwd} is not inside a git or jj checkout`)
+    if (this.files[checkout.vcs] === undefined) throw new Error(`architecture: ${checkout.root} is a ${checkout.vcs} checkout, but ${checkout.vcs} is not installed`)
+    return checkout
+  }
+
+  private filesOf(checkout: CheckoutState): VcsFiles {
+    const files = this.files[checkout.vcs]
+    /* v8 ignore next -- every checkout reaching here came from checkout() or requireCheckout(), which require the adapter. */
+    if (files === undefined) throw new Error(`architecture: ${checkout.vcs} is not installed`)
+    return files
   }
 
   private store(root: string): RecordStore {
@@ -720,12 +798,6 @@ export class ArchitectureService extends Service {
     this.changed(root)
   }
 
-  private requireFiles(): GitFiles {
-    /* v8 ignore next -- Service.init resolves git before the service is usable. */
-    if (this.files === undefined) throw new Error('architecture: git is not resolved yet')
-    return this.files
-  }
-
   private defaultProtected(root: string): ProtectedPaths {
     return {
       root,
@@ -739,7 +811,7 @@ export class ArchitectureService extends Service {
     if (from === to) return paths
     // Every protected path lies inside `from`, so its relative spelling never escapes.
     const move = (path: string): string => join(to, relative(from, path))
-    return { root: to, files: new Set([...paths.files].map(move)), localDirectory: move(paths.localDirectory) }
+    return { root: to, files: new Set([...paths.files].map(move)), localDirectory: move(paths.localDirectory), sources: paths.sources }
   }
 
   /**

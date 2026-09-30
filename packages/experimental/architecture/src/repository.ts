@@ -1,8 +1,14 @@
 /**
- * Locate the git checkout containing a path by reading `.git` metadata from
- * the filesystem, synchronously, so the synchronous tool guard and the edit
- * rule use the same answer. A linked worktree's `.git` file names its private
- * git directory, whose `commondir` file names the shared repository directory.
+ * Locate the version-controlled checkout containing a path by reading `.jj`
+ * and `.git` metadata from the filesystem, synchronously, so the synchronous
+ * tool guard and the edit rule use the same roots.
+ *
+ * A Jujutsu workspace wins over git: jj owns a colocated `.git`, and a
+ * non-colocated repository has no `.git` in its work tree. The primary jj
+ * workspace holds `.jj/repo` as a directory; every other workspace holds a
+ * `.jj/repo` file naming the primary's repository directory. A linked git
+ * worktree's `.git` file names its private git directory, whose `commondir`
+ * file names the shared repository directory.
  * @module @deepseek-ai/dsh-experimental-architecture/repository
  */
 
@@ -32,7 +38,7 @@ function kind(path: string): 'file' | 'directory' | undefined {
 /**
  * Describe the checkout containing a path.
  * @param start - absolute path inside the checkout; need not exist.
- * @returns the checkout, or undefined when no enclosing directory holds `.git`.
+ * @returns the checkout, or undefined when no enclosing directory holds `.jj` or `.git`.
  */
 export function locateCheckout(start: string): CheckoutState | undefined {
   // Walk up to an existing directory; the filesystem root always is one.
@@ -40,16 +46,31 @@ export function locateCheckout(start: string): CheckoutState | undefined {
   while (kind(directory) !== 'directory') directory = dirname(directory)
   directory = realpathSync.native(directory)
   for (;;) {
+    const jj = kind(join(directory, '.jj')) === 'directory' ? describeJj(directory) : undefined
+    if (jj !== undefined) return jj
     const dotGit = join(directory, '.git')
     const found = kind(dotGit)
-    if (found !== undefined) return describe(directory, dotGit, found)
+    if (found !== undefined) return describeGit(directory, dotGit, found)
     const parent = dirname(directory)
     if (parent === directory) return undefined
     directory = parent
   }
 }
 
-function describe(root: string, dotGit: string, found: 'file' | 'directory'): CheckoutState | undefined {
+function describeJj(root: string): CheckoutState | undefined {
+  const repo = join(root, '.jj', 'repo')
+  const found = kind(repo)
+  if (found === 'directory') return { vcs: 'jj', root, primaryRoot: root, isPrimary: true, branch: undefined }
+  const pointer = found === 'file' ? readTrimmed(repo) : undefined
+  if (pointer === undefined || pointer.length === 0) return undefined
+  // The pointer names `<primary>/.jj/repo`, relative to this workspace's `.jj` directory.
+  const target = isAbsolute(pointer) ? pointer : resolve(root, '.jj', pointer)
+  if (kind(target) !== 'directory') return undefined
+  const primaryRoot = dirname(dirname(realpathSync.native(target)))
+  return { vcs: 'jj', root, primaryRoot, isPrimary: primaryRoot === root, branch: undefined }
+}
+
+function describeGit(root: string, dotGit: string, found: 'file' | 'directory'): CheckoutState | undefined {
   let gitDir = dotGit
   if (found === 'file') {
     const pointer = readTrimmed(dotGit)
@@ -69,5 +90,5 @@ function describe(root: string, dotGit: string, found: 'file' | 'directory'): Ch
   }
   const head = readTrimmed(join(gitDir, 'HEAD'))
   const branch = head?.startsWith('ref: refs/heads/') === true ? head.slice('ref: refs/heads/'.length) : undefined
-  return { root, primaryRoot, isPrimary: root === primaryRoot, branch }
+  return { vcs: 'git', root, primaryRoot, isPrimary: root === primaryRoot, branch }
 }

@@ -121,10 +121,10 @@ describe('GitFiles', () => {
     await writeFile(join(repo, 'new.md'), 'n')
     await writeFile(join(repo, 'ign.md'), 'i')
     const files = await gitFiles()
-    expect(Object.fromEntries(await files.status(repo, ['a.md', 'b.md', 'new.md', 'ign.md'], undefined)))
+    expect(Object.fromEntries(await files.status(repo, undefined, ['a.md', 'b.md', 'new.md', 'ign.md'], undefined)))
       .toEqual({ 'a.md': 'modified', 'new.md': 'untracked', 'ign.md': 'ignored' })
-    expect((await files.status(repo, [], undefined)).size).toBe(0)
-    await expect(files.status(await scratch(), ['a.md'], undefined)).rejects.toThrow(/git status failed/)
+    expect((await files.status(repo, undefined, [], undefined)).size).toBe(0)
+    await expect(files.status(await scratch(), undefined, ['a.md'], undefined)).rejects.toThrow(/git status failed/)
 
     const fake = join(repo, 'fake-git')
     await writeFile(fake, '#!/bin/sh\nprintf \' M a.md\\0partial\'\n', { mode: 0o755 })
@@ -132,7 +132,7 @@ describe('GitFiles', () => {
     cleanups.push(() => ctx.fiber.dispose())
     await ctx.plugin(LocalSubprocessRuntime)
     const truncated = new GitFiles(ctx.subprocess, fake, { timeoutMs: 10_000, outputMaxBytes: 1_000 })
-    await expect(truncated.status(repo, ['a.md'], undefined)).rejects.toThrow(/status output ended mid-entry/)
+    await expect(truncated.status(repo, undefined, ['a.md'], undefined)).rejects.toThrow(/status output ended mid-entry/)
   })
 
   it('reports a timeout', async () => {
@@ -155,14 +155,14 @@ describe('locateCheckout', () => {
     git(seed, 'push', '-q', bare, 'main')
     const work = join(root, 'work')
     git(bare, 'worktree', 'add', '-q', work, 'main')
-    expect(locateCheckout(work)).toEqual({ root: work, primaryRoot: bare, isPrimary: false, branch: 'main' })
+    expect(locateCheckout(work)).toEqual({ vcs: 'git', root: work, primaryRoot: bare, isPrimary: false, branch: 'main' })
 
     const absolute = join(root, 'absolute')
     await mkdir(join(absolute, 'gitdir'), { recursive: true })
     await writeFile(join(absolute, '.git'), `gitdir: ${join(absolute, 'gitdir')}\n`)
     await writeFile(join(absolute, 'gitdir', 'commondir'), `${join(root, 'seed', '.git')}\n`)
     await writeFile(join(absolute, 'gitdir', 'HEAD'), 'ref: refs/heads/topic\n')
-    expect(locateCheckout(absolute)).toEqual({ root: absolute, primaryRoot: join(root, 'seed'), isPrimary: false, branch: 'topic' })
+    expect(locateCheckout(absolute)).toEqual({ vcs: 'git', root: absolute, primaryRoot: join(root, 'seed'), isPrimary: false, branch: 'topic' })
 
     const relative = join(root, 'relative')
     await mkdir(relative)
