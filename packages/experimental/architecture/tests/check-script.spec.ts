@@ -77,6 +77,23 @@ describe('check-architecture.sh staged', () => {
     expect(check(repo, '--main-branch', 'main', 'staged').status).toBe(0)
   })
 
+  it('takes the main branch from the manifest before --main-branch, and refuses changes when neither names one', async () => {
+    const { repo } = await fixture('mainBranch: "trunk"  # declared\nsources:\n  - design/**/*.md\n')
+    await writeFile(join(repo, 'design', 'sub', 'arch.md'), '# Changed\n')
+    git(repo, 'add', '-A')
+    expect(check(repo, '--main-branch', 'main', 'staged').stderr).toMatch(/change only on trunk in the primary worktree; this commit is on branch main/)
+    git(repo, 'checkout', '-q', '-b', 'trunk')
+    expect(check(repo, 'staged')).toEqual({ status: 0, stderr: '' })
+
+    await writeFile(join(repo, 'architecture.yml'), 'sources:\n  - design/**/*.md\n')
+    git(repo, 'add', '-A')
+    expect(check(repo, 'staged')).toEqual({
+      status: 1,
+      stderr: 'check-architecture: architecture.yml declares no mainBranch and --main-branch is not given, so no branch may change '
+        + 'architecture sources; this commit changes:\n  architecture.yml\n  design/sub/arch.md\n',
+    })
+  })
+
   it('reads a custom manifest path', async () => {
     const { repo, linked } = await fixture()
     git(repo, 'mv', 'architecture.yml', 'arch.yml')
@@ -99,6 +116,7 @@ describe('check-architecture.sh range', () => {
     git(linked, 'commit', '-q', '-am', 'doc')
     const refused = check(linked, '--main-branch', 'main', 'range', 'main', 'HEAD')
     expect(refused).toEqual({ status: 1, stderr: 'check-architecture: architecture sources change only on main; main...HEAD changes:\n  design/sub/arch.md\n' })
+    expect(check(linked, 'range', 'main', 'HEAD').stderr).toMatch(/^check-architecture: architecture sources change only on the main branch the manifest declares; /)
     // A head without a manifest has nothing to check.
     git(repo, 'rm', '-q', 'architecture.yml')
     git(repo, 'commit', '-q', '-m', 'drop')
@@ -109,7 +127,7 @@ describe('check-architecture.sh range', () => {
 describe('check-architecture.sh errors', () => {
   it('rejects bad usage', async () => {
     const { repo } = await fixture()
-    for (const args of [[], ['staged'], ['--main-branch'], ['--main-branch', 'main'], ['--main-branch', 'main', 'staged', 'extra'],
+    for (const args of [[], ['--main-branch'], ['--main-branch', 'main'], ['--main-branch', 'main', 'staged', 'extra'],
       ['--main-branch', 'main', 'range', 'a'], ['--main-branch', 'main', 'other'], ['--bogus'], ['--manifest']]) {
       const result = check(repo, ...args)
       expect(result.status).toBe(2)
@@ -126,6 +144,7 @@ describe('check-architecture.sh errors', () => {
     ['orphan item', '  - design/*.md\n', /architecture\.yml:1: list item outside sources or exclude/],
     ['empty glob', 'sources:\n  - ""\n', /architecture\.yml:2: empty glob/],
     ['no sources', '# nothing\nexclude:\n  - x\n', /no sources/],
+    ['a spaced main branch', 'mainBranch: a b\nsources:\n  - x\n', /architecture\.yml:1: mainBranch must be one branch name/],
   ])('refuses a manifest it cannot read: %s', async (_name, manifest, message) => {
     const { repo } = await fixture(manifest)
     const result = check(repo, '--main-branch', 'main', 'staged')

@@ -7,7 +7,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -23,7 +23,7 @@ import { runConsultation, SUBMIT_RULING_TOOL } from './consultation.ts'
 import { GitFiles } from './git-files.ts'
 import { canonicalizeForWrite, isProtected, writeCall, writeTarget, type ProtectedPaths } from './guard.ts'
 import { buildIndex } from './index-builder.ts'
-import { parseManifest } from './manifest.ts'
+import { declaredMainBranch, parseManifest } from './manifest.ts'
 import { locateCheckout } from './repository.ts'
 import { ACCEPTANCES_FILE, APPEALS_DIRECTORY, isMissing, RecordStore, RULINGS_DIRECTORY } from './records.ts'
 import { validateRuling } from './ruling.ts'
@@ -173,6 +173,8 @@ export function describeRefusal(refusal: EditRefusal): string {
       return `${refusal.cwd} is not inside a git checkout, so the main-branch edit rule cannot be satisfied`
     case 'linked-worktree':
       return `architecture sources change only in the primary worktree ${refusal.primaryRoot}, not in the linked worktree ${refusal.root}`
+    case 'no-main-branch':
+      return `architecture sources cannot change until ${refusal.manifestPath} declares mainBranch, the branch whose primary worktree changes them`
     case 'wrong-branch':
       return `architecture sources change only on branch ${refusal.mainBranch}; the checkout is on ${refusal.branch ?? 'a detached HEAD'}`
     case 'not-protected':
@@ -211,7 +213,7 @@ export class ArchitectureService extends Service {
   static inject = ['subprocess', 'tools']
 
   static Config: z<Config> = z.object({
-    mainBranch: z.string().required().description('Branch whose primary-worktree checkout is the only place architecture sources change.'),
+    mainBranch: z.string().description('Main branch of a repository whose manifest declares no `mainBranch`.'),
     manifestPath: z.string().default('architecture.yml').description('Workspace-relative path of the architecture manifest.'),
     localDirectory: z.string().default('.architecture').description('Workspace-relative directory holding local architecture entries.'),
     architectPreset: z.string().default('architect').description('Agent preset whose agents may run only `architectTools`.'),
@@ -239,7 +241,7 @@ export class ArchitectureService extends Service {
         throw new Error(`architecture: ${field} must be a workspace-relative path without ".." segments`)
       }
     }
-    if (config.mainBranch.trim().length === 0) throw new Error('architecture: mainBranch must be a non-empty branch name')
+    if (config.mainBranch?.trim().length === 0) throw new Error('architecture: mainBranch must be a non-empty branch name')
     this.config = config
     // The service registers `submit_ruling` on its own consultation agents.
     this.architectTools = new Set([...config.architectTools, SUBMIT_RULING_TOOL])
@@ -446,12 +448,14 @@ export class ArchitectureService extends Service {
     if (outcome.kind !== 'submitted') return { kind: outcome.kind, id: outcome.id, session: outcome.session }
     const files = this.requireFiles()
     const accepted = await this.acceptedKeys(index.root)
+    const mainBranch = this.mainBranchOf(index.root)
     const ruling = await validateRuling(
       { id: outcome.id, question: request.question, scope: request.scope },
       outcome.submission,
       index,
-      this.config.mainBranch,
-      path => files.committed(index.root, this.config.mainBranch, path, request.signal),
+      mainBranch,
+      // Without a main branch the citations never read a committed version.
+      path => files.committed(index.root, mainBranch as string, path, request.signal),
       section => accepted.has(acceptanceKey(section)),
     )
     return { kind: 'ruling', ruling, session: outcome.session, revision: indexRevision(index) }
@@ -595,6 +599,7 @@ export class ArchitectureService extends Service {
     const revision = built === undefined ? EMPTY_REVISION : indexRevision(built)
     const localEntries = await this.localEntries(root)
     const records = await this.store(root).read()
+    const mainBranch = this.mainBranchOf(root)
     const status = await this.requireFiles().status(root, [...index.sources, ...localEntries], signal)
     const gitStatus = (path: string): GitFileStatus => status.get(path) ?? 'committed'
     const current = new Map(index.sections.map(section => [`${section.path}#${section.anchor}`, section.hash]))
@@ -609,7 +614,7 @@ export class ArchitectureService extends Service {
       Number(a.adjudication !== undefined) - Number(b.adjudication !== undefined) || b.filedAt - a.filedAt)
     return {
       root,
-      mainBranch: this.config.mainBranch,
+      ...(mainBranch === undefined ? {} : { mainBranch }),
       manifestPath: this.config.manifestPath,
       localDirectory: this.config.localDirectory,
       hasManifest: this.roots.get(root)?.manifest !== undefined,
@@ -634,14 +639,29 @@ export class ArchitectureService extends Service {
     const checkout = locateCheckout(cwd)
     if (checkout === undefined) return { kind: 'not-repository', cwd }
     if (!checkout.isPrimary) return { kind: 'linked-worktree', root: checkout.root, primaryRoot: checkout.primaryRoot }
-    if (checkout.branch !== this.config.mainBranch) {
-      return { kind: 'wrong-branch', branch: checkout.branch, mainBranch: this.config.mainBranch }
-    }
+    const mainBranch = this.mainBranchOf(checkout.primaryRoot)
+    if (mainBranch === undefined) return { kind: 'no-main-branch', manifestPath: this.config.manifestPath }
+    if (checkout.branch !== mainBranch) return { kind: 'wrong-branch', branch: checkout.branch, mainBranch }
     const target = canonicalizeForWrite(resolve(checkout.root, path))
     if (relativeInside(checkout.root, target) === undefined || !this.isProtected(target)) {
       return { kind: 'not-protected', path }
     }
     return undefined
+  }
+
+  /**
+   * The main branch of the repository at `root`: the manifest's `mainBranch`, else the service default. The manifest
+   * is read on each call, so a branch change applies at once and a manifest under repair still names its branch.
+   */
+  private mainBranchOf(root: string): string | undefined {
+    let text: string
+    try {
+      text = readFileSync(join(root, this.config.manifestPath), 'utf8')
+    } catch {
+      // readFileSync failed: the repository has no readable manifest, so only the default can apply.
+      return this.config.mainBranch
+    }
+    return declaredMainBranch(text) ?? this.config.mainBranch
   }
 
   private primaryRoot(cwd: string): string {

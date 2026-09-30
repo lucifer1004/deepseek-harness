@@ -1,2 +1,3 @@
+mainBranch: main
 sources:
   - docs/*.md

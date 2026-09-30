@@ -5,8 +5,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Plugin configuration for `ctx.architecture`. */
 export interface Config {
-  /** Branch whose primary-worktree checkout is the only place architecture sources change. */
-  mainBranch: string
+  /** Main branch of a repository whose manifest declares none; unset leaves such a repository without one. */
+  mainBranch?: string
   /** Workspace-relative path of the architecture manifest. */
   manifestPath: string
   /** Workspace-relative directory holding local architecture entries. */
@@ -35,6 +35,8 @@ export interface ArchitectureManifest {
   readonly sources: readonly string[]
   /** Workspace-relative POSIX globs removed from `sources`. */
   readonly exclude: readonly string[]
+  /** The repository's main branch: only its primary-worktree checkout changes architecture sources. */
+  readonly mainBranch: string | undefined
 }
 
 /** One heading-delimited section of a Markdown source. */
@@ -92,6 +94,7 @@ export type EditRefusal =
   | { readonly kind: 'not-repository'; readonly cwd: string }
   | { readonly kind: 'linked-worktree'; readonly root: string; readonly primaryRoot: string }
   | { readonly kind: 'wrong-branch'; readonly branch: string | undefined; readonly mainBranch: string }
+  | { readonly kind: 'no-main-branch'; readonly manifestPath: string }
   | { readonly kind: 'not-protected'; readonly path: string }
   | { readonly kind: 'unknown-section'; readonly path: string; readonly anchor: string }
   | { readonly kind: 'stale-section'; readonly path: string; readonly anchor: string; readonly hash: SectionHash }
@@ -180,7 +183,7 @@ export interface ProposedConstraint {
 export type CitationFailure =
   | { readonly kind: 'malformed'; readonly cite: string }
   | { readonly kind: 'unknown-section'; readonly cite: string }
-  | { readonly kind: 'uncommitted'; readonly cite: string; readonly mainBranch: string }
+  | { readonly kind: 'uncommitted'; readonly cite: string; readonly mainBranch: string | undefined }
 
 /** Outcome of one consultation. */
 export type ConsultResult =
@@ -273,8 +276,8 @@ export interface LocalEntry {
 export interface ArchitectureSnapshot {
   /** Canonical primary-worktree root. */
   readonly root: string
-  /** Configured main branch. */
-  readonly mainBranch: string
+  /** The repository's main branch, from its manifest or the service default; absent when neither names one. */
+  readonly mainBranch?: string
   /** Configured manifest path, relative to the repository root. */
   readonly manifestPath: string
   /** Configured local architecture directory, relative to the repository root. */

@@ -39,7 +39,7 @@ describe('architecture profile bundle', () => {
     })
   })
 
-  it('leaves mainBranch to the profile and names the worker tool on the host', () => {
+  it('leaves the default mainBranch to the profile and names the worker tool on the host', () => {
     const entries = inserted()
     const service = entries.find(entry => entry.id === 'architecture')
     expect(service?.name).toBe('@deepseek-ai/dsh-experimental-architecture')

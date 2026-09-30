@@ -27,7 +27,7 @@ kind: "package-bundle"
 
 ### 安装到 profile
 
-在 Web profile 的 `dsh.profile.bundles` 中把本 bundle 加在 `@deepseek-ai/dsh-web-app` 之后，然后在该 profile 的 `cordis.patch.yml` 中设置主分支：
+在 Web profile 的 `dsh.profile.bundles` 中把本 bundle 加在 `@deepseek-ai/dsh-web-app` 之后。每个仓库在自己的 `architecture.yml` 中声明主分支，因此一个 profile 可以服务主分支不同的多个仓库；如需为未声明主分支的 manifest 提供默认值，在该 profile 的 `cordis.patch.yml` 中设置：
 
 ```yaml
 - id: architecture

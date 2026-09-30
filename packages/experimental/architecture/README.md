@@ -38,14 +38,13 @@ Add one row to a composition that already mounts `@deepseek-ai/dsh-tools` and `@
 ```yaml
 - id: architecture
   name: '@deepseek-ai/dsh-experimental-architecture'
-  config:
-    mainBranch: main
 ```
 
-Commit a manifest that lists the source documents as workspace-relative globs:
+Commit a manifest that names the repository's main branch and lists the source documents as workspace-relative globs:
 
 ```yaml
 # architecture.yml
+mainBranch: main
 sources:
   - docs/architecture.md
   - docs/subsystems/*.md
@@ -53,9 +52,11 @@ exclude:
   - '**/*.zh.md'
 ```
 
+Each repository's main branch is the manifest's `mainBranch`, or the service's `mainBranch` when the manifest names none; only that branch's primary-worktree checkout changes architecture sources, and Rulings bind only sections committed on it. The service reads the manifest's branch on every check, so a changed branch applies at once. A repository with neither refuses every architecture edit with `no-main-branch`, and its Rulings bind only sections the user accepted.
+
 | Field | Default | Meaning |
 |---|---|---|
-| `mainBranch` | required | Branch whose primary-worktree checkout is the only place architecture sources change. |
+| `mainBranch` | unset | Main branch of a repository whose manifest declares none. |
 | `manifestPath` | `architecture.yml` | Workspace-relative path of the manifest. |
 | `localDirectory` | `.architecture` | Workspace-relative directory for local architecture entries and the Ruling, appeal, and acceptance records; every path under it is protected. |
 | `architectPreset` | `architect` | Agent preset whose agents may run only `architectTools`. |
@@ -68,11 +69,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### What success and failure look like
 
-`ctx.architecture.rebuild(cwd)` returns the index of the repository containing `cwd`, or `undefined` when it has no manifest; an invalid manifest throws `ManifestError`. A source that is too large, unreadable, or not UTF-8 appears in `diagnostics` instead of failing the rebuild. A `write`, `edit`, or `str_replace_editor` call that targets a protected path fails with an error result that names the path. `ctx.architecture.edit()` returns `{ kind: 'written' }` or a refusal whose `kind` is `not-repository`, `linked-worktree`, `wrong-branch`, `not-protected`, `unknown-section`, or `stale-section`; `describeRefusal()` renders it as one sentence. `ctx.architecture.consult()` returns `{ kind: 'ruling' }`, `timeout`, or `no-submission`, and rejects when the worker cancels, the worker Session has no directory, or the repository has no manifest. `snapshot(cwd)` returns the dashboard state; `appeal()`, `adjudicate()`, and `accept()` reject with a message naming an unknown Ruling or appeal, an already decided appeal, or a section hash that changed.
+`ctx.architecture.rebuild(cwd)` returns the index of the repository containing `cwd`, or `undefined` when it has no manifest; an invalid manifest throws `ManifestError`. A source that is too large, unreadable, or not UTF-8 appears in `diagnostics` instead of failing the rebuild. A `write`, `edit`, or `str_replace_editor` call that targets a protected path fails with an error result that names the path. `ctx.architecture.edit()` returns `{ kind: 'written' }` or a refusal whose `kind` is `not-repository`, `linked-worktree`, `no-main-branch`, `wrong-branch`, `not-protected`, `unknown-section`, or `stale-section`; `describeRefusal()` renders it as one sentence. `ctx.architecture.consult()` returns `{ kind: 'ruling' }`, `timeout`, or `no-submission`, and rejects when the worker cancels, the worker Session has no directory, or the repository has no manifest. `snapshot(cwd)` returns the dashboard state; `appeal()`, `adjudicate()`, and `accept()` reject with a message naming an unknown Ruling or appeal, an already decided appeal, or a section hash that changed.
 
 ### Check commits and CI
 
-The package ships [`scripts/check-architecture.sh`](scripts/check-architecture.sh), a POSIX shell script that uses only git. Run `check-architecture.sh --main-branch main staged` from a pre-commit hook to refuse a commit that changes the manifest or a source outside the primary worktree on `main`. Run `check-architecture.sh --main-branch main range origin/main HEAD` in CI on other branches to refuse a range that changes them. `--manifest <path>` reads another manifest path. It exits 1 on a violation and 2 on a usage error or a manifest it cannot read; it reads only block lists under `sources:` and `exclude:`.
+The package ships [`scripts/check-architecture.sh`](scripts/check-architecture.sh), a POSIX shell script that uses only git. Run `check-architecture.sh staged` from a pre-commit hook to refuse a commit that changes the manifest or a source outside the primary worktree on the manifest's `mainBranch`. Run `check-architecture.sh range origin/main HEAD` in CI on other branches to refuse a range that changes them. `--main-branch <branch>` names the branch for a manifest that declares none; with neither, `staged` refuses every such change. `--manifest <path>` reads another manifest path. It exits 1 on a violation and 2 on a usage error or a manifest it cannot read; it reads only block lists under `sources:` and `exclude:` and a plain `mainBranch:` value.
 
 -----
 

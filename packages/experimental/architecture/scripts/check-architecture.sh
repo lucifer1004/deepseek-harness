@@ -2,8 +2,12 @@
 # Refuse architecture-source changes made outside the main branch's primary worktree.
 #
 # Usage:
-#   check-architecture.sh --main-branch <branch> [--manifest <path>] staged
-#   check-architecture.sh --main-branch <branch> [--manifest <path>] range <base> <head>
+#   check-architecture.sh [--main-branch <branch>] [--manifest <path>] staged
+#   check-architecture.sh [--main-branch <branch>] [--manifest <path>] range <base> <head>
+#
+# The main branch is the manifest's top-level `mainBranch:` scalar; --main-branch
+# names it for a manifest that declares none. Without either, `staged` refuses
+# every architecture-source change, because no branch may make it.
 #
 # `staged` checks the index of the current checkout, for a pre-commit hook. It
 # fails when a staged path is the manifest or matches a manifest source, and the
@@ -13,8 +17,8 @@
 #
 # The manifest is read with git from the checkout's working tree in `staged` mode
 # and from <head> in `range` mode. Only YAML block lists under `sources:` and
-# `exclude:` are read; any other non-comment line fails the check, so a manifest
-# this script cannot read never passes silently. The local architecture
+# `exclude:`, and a plain `mainBranch:` scalar, are read; any other non-comment
+# line fails the check, so a manifest this script cannot read never passes silently. The local architecture
 # directory is not checked: the architecture service writes Ruling records there
 # from every branch, and whether it is tracked is the user's choice.
 #
@@ -22,7 +26,7 @@
 set -eu
 
 usage() {
-  echo "usage: check-architecture.sh --main-branch <branch> [--manifest <path>] (staged | range <base> <head>)" >&2
+  echo "usage: check-architecture.sh [--main-branch <branch>] [--manifest <path>] (staged | range <base> <head>)" >&2
   exit 2
 }
 
@@ -37,7 +41,6 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
-[ -n "$main_branch" ] || usage
 [ "$#" -ge 1 ] || usage
 mode=$1
 shift
@@ -64,6 +67,17 @@ pathspecs=$(printf '%s\n' "$manifest_text" | awk -v manifest="$manifest" '
   /^[[:space:]]*(#.*)?$/ { next }
   /^sources:[[:space:]]*(#.*)?$/ { list = "sources"; next }
   /^exclude:[[:space:]]*(#.*)?$/ { list = "exclude"; next }
+  /^mainBranch:[[:space:]]*[^[:space:]#]/ {
+    value = $0
+    sub(/^mainBranch:[[:space:]]*/, "", value)
+    sub(/[[:space:]]+#.*$/, "", value)
+    sub(/[[:space:]]+$/, "", value)
+    if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) value = substr(value, 2, length(value) - 2)
+    if (value == "" || value ~ /[[:space:]]/) fail("mainBranch must be one branch name")
+    print "branch:" value
+    list = ""
+    next
+  }
   /^[[:space:]]+-[[:space:]]+/ {
     if (list == "") fail("list item outside sources or exclude")
     item = $0
@@ -78,6 +92,11 @@ pathspecs=$(printf '%s\n' "$manifest_text" | awk -v manifest="$manifest" '
   { fail("unsupported manifest syntax; only block lists under sources and exclude are read") }
   END { if (!failed && sources == 0) fail("no sources") }
 ') || exit 2
+
+# The manifest's branch line, when present, overrides --main-branch.
+declared=$(printf '%s\n' "$pathspecs" | sed -n 's/^branch://p')
+[ -z "$declared" ] || main_branch=$declared
+pathspecs=$(printf '%s\n' "$pathspecs" | sed '/^branch:/d')
 
 # Pathspecs never contain newlines (each is one manifest list item), so a
 # newline-separated list is split into arguments safely.
@@ -97,6 +116,10 @@ if [ "$mode" = staged ]; then
   branch=$(git symbolic-ref --quiet --short HEAD || true)
   if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
     where="a linked worktree"
+  elif [ -z "$main_branch" ]; then
+    echo "check-architecture: $manifest declares no mainBranch and --main-branch is not given, so no branch may change architecture sources; this commit changes:" >&2
+    printf '%s\n' "$changed" | sed 's/^/  /' >&2
+    exit 1
   elif [ "$branch" != "$main_branch" ]; then
     where="branch ${branch:-(detached HEAD)}"
   else
@@ -106,7 +129,7 @@ if [ "$mode" = staged ]; then
 else
   changed=$(git diff --name-only --no-renames "$base...$head" -- "$@")
   [ -n "$changed" ] || exit 0
-  echo "check-architecture: architecture sources change only on $main_branch; $base...$head changes:" >&2
+  echo "check-architecture: architecture sources change only on ${main_branch:-the main branch the manifest declares}; $base...$head changes:" >&2
 fi
 printf '%s\n' "$changed" | sed 's/^/  /' >&2
 exit 1

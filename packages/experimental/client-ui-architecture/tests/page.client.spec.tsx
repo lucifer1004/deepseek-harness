@@ -146,6 +146,15 @@ describe('ArchitecturePage', () => {
     expect(screen.queryByRole('button', { name: '查看 design/arch.md#storage' })).toBeNull()
   })
 
+  it('says when the repository declares no main branch', async () => {
+    const { dashboard } = fixture()
+    expect(screen.queryByText(/没有声明 mainBranch/)).toBeNull()
+    const { mainBranch: _omitted, ...withoutBranch } = snapshot()
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: withoutBranch })
+    expect(await screen.findByText(/未声明主分支 · 2 个来源 · 3 个章节/)).toBeTruthy()
+    expect(screen.getByText('architecture.yml 没有声明 mainBranch，所以架构来源无法修改，只有你接受过的章节可被裁定引用')).toBeTruthy()
+  })
+
   it('accepts an uncommitted section and reports a failed acceptance', async () => {
     const { props, dashboard } = fixture()
     expand('design/new.md')

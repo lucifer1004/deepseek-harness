@@ -45,13 +45,15 @@ async function fixture(): Promise<{ repo: string; linked: string }> {
   return { repo, linked }
 }
 
-async function boot(config: Partial<Config> = {}): Promise<Context> {
+async function boot(config: Partial<Omit<Config, 'mainBranch'>> & { mainBranch?: string | null } = {}): Promise<Context> {
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
-  await ctx.plugin(ArchitectureService, { mainBranch: 'main', ...config } as Config)
+  const { mainBranch = 'main', ...rest } = config
+  // A null mainBranch boots the service without a default branch.
+  await ctx.plugin(ArchitectureService, { ...(mainBranch === null ? {} : { mainBranch }), ...rest } as Config)
   await ctx.plugin(Object.assign((inner: Context) => {
     for (const name of ['write', 'edit', 'str_replace_editor', 'read']) {
       inner.tools.register({
@@ -206,6 +208,28 @@ describe('ArchitectureService', () => {
     git(repo, 'checkout', '-q', '--detach')
     const detached = await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' })
     if (detached.kind === 'refused') expect(describeRefusal(detached.refusal)).toMatch(/detached HEAD/)
+  })
+
+  it('takes the main branch from the manifest before the service default, and refuses edits without one', async () => {
+    const { repo } = await fixture()
+    git(repo, 'checkout', '-q', '-b', 'trunk')
+    const ctx = await boot()
+    await ctx.architecture.rebuild(repo)
+    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' }))
+      .toMatchObject({ refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
+    // The manifest's branch wins over the default, from the next check on.
+    await writeFile(join(repo, 'architecture.yml'), 'mainBranch: trunk\nsources:\n  - docs/**/*.md\n')
+    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: '# Architecture\n' }))
+      .toEqual({ kind: 'written', path: 'docs/architecture.md' })
+    expect(await ctx.architecture.snapshot(repo)).toMatchObject({ mainBranch: 'trunk' })
+
+    // Without a default, a manifest that names no branch leaves the sources unchangeable.
+    const bare = await boot({ mainBranch: null })
+    await writeFile(join(repo, 'architecture.yml'), 'sources:\n  - docs/**/*.md\n')
+    const refused = await bare.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' })
+    expect(refused).toEqual({ kind: 'refused', refusal: { kind: 'no-main-branch', manifestPath: 'architecture.yml' } })
+    if (refused.kind === 'refused') expect(describeRefusal(refused.refusal)).toMatch(/architecture\.yml declares mainBranch/)
+    expect(await bare.architecture.snapshot(repo)).not.toHaveProperty('mainBranch')
   })
 
   it('withdraws the guard when the plugin unloads', async () => {

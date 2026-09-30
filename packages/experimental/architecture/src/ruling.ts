@@ -34,7 +34,7 @@ export interface RulingRequest {
  * @param request - identity, question, and scope.
  * @param submission - the architect's submission.
  * @param index - current index of the primary worktree.
- * @param mainBranch - branch whose committed text is authoritative.
+ * @param mainBranch - branch whose committed text is authoritative, or undefined when the repository has none.
  * @param readCommitted - reads a source as committed on `mainBranch`.
  * @param isAccepted - whether the user accepted a section's current content.
  * @returns the Ruling with only verified constraints.
@@ -43,7 +43,7 @@ export async function validateRuling(
   request: RulingRequest,
   submission: RulingSubmission,
   index: ArchitectureIndex,
-  mainBranch: string,
+  mainBranch: string | undefined,
   readCommitted: ReadCommitted,
   isAccepted: IsAccepted,
 ): Promise<Ruling> {

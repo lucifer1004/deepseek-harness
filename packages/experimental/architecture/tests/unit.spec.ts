@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { canonicalizeForWrite, isProtected, writeTarget, type WriteCall } from '../src/guard.ts'
 import { matchSources } from '../src/index-builder.ts'
-import { ManifestError, parseManifest } from '../src/manifest.ts'
+import { declaredMainBranch, ManifestError, parseManifest } from '../src/manifest.ts'
 import { locateCheckout } from '../src/repository.ts'
 import { githubSlug, hashSection, indexSections } from '../src/sections.ts'
 import type { SourcePath } from '../src/types.ts'
@@ -34,9 +34,16 @@ const path = (value: string): SourcePath => brandString<SourcePath>(value)
 describe('parseManifest', () => {
   it('accepts workspace-relative source globs', () => {
     expect(parseManifest('sources:\n  - design/**/*.md\n  - ARCHITECTURE.md\n', 'architecture.yml'))
-      .toEqual({ sources: ['design/**/*.md', 'ARCHITECTURE.md'], exclude: [] })
-    expect(parseManifest('sources: [design/*.md]\nexclude: [design/*.zh.md]\n', 'architecture.yml'))
-      .toEqual({ sources: ['design/*.md'], exclude: ['design/*.zh.md'] })
+      .toEqual({ sources: ['design/**/*.md', 'ARCHITECTURE.md'], exclude: [], mainBranch: undefined })
+    expect(parseManifest('sources: [design/*.md]\nexclude: [design/*.zh.md]\nmainBranch: release/2\n', 'architecture.yml'))
+      .toEqual({ sources: ['design/*.md'], exclude: ['design/*.zh.md'], mainBranch: 'release/2' })
+  })
+
+  it('reads the declared main branch alone, from a manifest that fails validation too', () => {
+    expect(declaredMainBranch('mainBranch: trunk\nsources: []\n')).toBe('trunk')
+    for (const text of ['sources: [a.md]\n', 'mainBranch: two words\n', 'mainBranch: [\n', '- a\n', 'plain']) {
+      expect(declaredMainBranch(text)).toBeUndefined()
+    }
   })
 
   it.each([
@@ -47,6 +54,7 @@ describe('parseManifest', () => {
     ['a backslash', 'sources:\n  - docs\\a.md\n', /workspace-relative/],
     ['an unknown key', 'sources:\n  - a.md\nextra: 1\n', /extra|Unrecognized/i],
     ['a negated source', 'sources:\n  - design/*.md\n  - "!design/a.md"\n', /must not be negated/],
+    ['an invalid main branch', 'sources:\n  - a.md\nmainBranch: "a b"\n', /mainBranch: must be a git branch name/],
   ])('rejects %s', (_label, text, message) => {
     expect(() => parseManifest(text, 'architecture.yml')).toThrow(ManifestError)
     expect(() => parseManifest(text, 'architecture.yml')).toThrow(message)

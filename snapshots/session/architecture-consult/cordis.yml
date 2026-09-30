@@ -23,7 +23,6 @@
     - id: architecture
       name: '@deepseek-ai/dsh-experimental-architecture'
       config:
-        mainBranch: main
         # Ruling records carry a random id and issue time, so they cannot be a
         # fixed workspace oracle; the package tests assert their contents. The
         # harness-owned .dsh root keeps them out of the workspace comparison.

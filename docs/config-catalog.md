@@ -873,13 +873,13 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-architecture`
 
 - `inject`: `subprocess` · `tools`
-- `source`: [`packages/experimental/architecture/src/types.ts:8`](../packages/experimental/architecture/src/types.ts)
+- `source`: [`packages/experimental/architecture/src/types.ts:7`](../packages/experimental/architecture/src/types.ts)
 
 ```ts config-catalog
 /** Plugin configuration for `ctx.architecture`. */
 export interface Config {
-  /** Branch whose primary-worktree checkout is the only place architecture sources change. */
-  mainBranch: string
+  /** Main branch of a repository whose manifest declares none; unset leaves such a repository without one. */
+  mainBranch?: string
   /** Workspace-relative path of the architecture manifest. */
   manifestPath: string
   /** Workspace-relative directory holding local architecture entries. */
@@ -4425,8 +4425,10 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-config-editor` | `loader` · `profileContext` | [`packages/boot/config-editor/src/index.ts`](../packages/boot/config-editor/src/index.ts) |
 | `@deepseek-ai/dsh-cordis-client-runner` | — | [`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts) |
 | `@deepseek-ai/dsh-deepseek-llm-api-extensions` | — | [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts) |
+| `@deepseek-ai/dsh-experimental-api-architecture` | `architecture` · `workspaceRegistry` · `typert` | [`packages/experimental/api-architecture/src/index.ts`](../packages/experimental/api-architecture/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-auto-review` | `approval` · `llm` · `permissionPresets` · `sessions` · `tools` | [`packages/experimental/auto-review/src/index.ts`](../packages/experimental/auto-review/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-agent-team` | — | [`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts) |
+| `@deepseek-ai/dsh-experimental-client-ui-architecture` | — | [`packages/experimental/client-ui-architecture/src/index.ts`](../packages/experimental/client-ui-architecture/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-voice-input` | — | [`packages/experimental/client-ui-voice-input/src/index.ts`](../packages/experimental/client-ui-voice-input/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native` | `computerUse` · `tools` · `systemPrompt` | [`packages/experimental/computer-use-cua-driver-native/src/index.ts`](../packages/experimental/computer-use-cua-driver-native/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-tool-architecture` | `architecture` · `tools` · `systemPrompt` | [`packages/experimental/tool-architecture/src/index.ts`](../packages/experimental/tool-architecture/src/index.ts) |

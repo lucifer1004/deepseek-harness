@@ -225,12 +225,14 @@ function pendingCount(snapshot: ArchitectureSnapshot | null): number {
 function Summary({ snapshot, t }: { snapshot: ArchitectureSnapshot; t: Translate }): ReactNode {
   return (
     <p className={css.summary}>
-      {t('summary', {
-        branch: snapshot.mainBranch,
-        sources: String(snapshot.index.sources.length),
-        sections: String(snapshot.index.sections.length),
-        revision: snapshot.revision,
-      })}
+      {snapshot.mainBranch === undefined
+        ? t('summary.noBranch', { sources: String(snapshot.index.sources.length), sections: String(snapshot.index.sections.length), revision: snapshot.revision })
+        : t('summary', {
+          branch: snapshot.mainBranch,
+          sources: String(snapshot.index.sources.length),
+          sections: String(snapshot.index.sections.length),
+          revision: snapshot.revision,
+        })}
       {snapshot.problems.length > 0 && <Tag tone="danger" className={css.inlineTag}>{t('problems', { count: String(snapshot.problems.length) })}</Tag>}
     </p>
   )
@@ -277,6 +279,7 @@ function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceV
   return (
     <div className={css.split}>
       <div className={css.list}>
+        {snapshot.mainBranch === undefined && <p className={css.notice}>{t('noBranch', { manifest: snapshot.manifestPath })}</p>}
         {snapshot.index.diagnostics.length > 0 && (
           <p className={css.notice}>{t('diagnostics', { count: String(snapshot.index.diagnostics.length) })}</p>
         )}

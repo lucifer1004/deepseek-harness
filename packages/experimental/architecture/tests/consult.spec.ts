@@ -50,7 +50,7 @@ type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 interface Booted { ctx: Context; adapter: MockAdapter; worker: Agent; repo: string }
 
-async function boot(script: Script, config: Partial<Config> = {}): Promise<Booted> {
+async function boot(script: Script, config: Partial<Omit<Config, 'mainBranch'>> & { mainBranch?: string | null } = {}): Promise<Booted> {
   const repo = await repository()
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
@@ -64,7 +64,13 @@ async function boot(script: Script, config: Partial<Config> = {}): Promise<Boote
   const tools = pathToFileURL(join(FIXTURES, 'plugins/preset-tools.js')).href
   await ctx.agentPresets.register({ id: 'coding', plugins: [{ name: tools, config: { tools: ['read', 'write'] } }] })
   await ctx.agentPresets.register({ id: 'architect', plugins: [{ name: tools, config: { tools: ['read', 'write', 'web_search'] } }] })
-  await ctx.plugin(ArchitectureService, { mainBranch: 'main', architectTools: ['read', 'web_search', 'not_installed'], ...config } as Config)
+  const { mainBranch = 'main', ...rest } = config
+  // A null mainBranch boots the service without a default branch.
+  await ctx.plugin(ArchitectureService, {
+    ...(mainBranch === null ? {} : { mainBranch }),
+    architectTools: ['read', 'web_search', 'not_installed'],
+    ...rest,
+  } as Config)
   const adapter = new MockAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
   const handle = await ctx.agents.create({
@@ -116,6 +122,20 @@ describe('ArchitectureService.consult', () => {
     expect(JSON.stringify(request.messages)).toContain('Where does persistence go?\\n\\nScope: src/store')
     expect(ctx.agents.get(result.session)).toBeUndefined()
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('binds only accepted sections when the repository declares no main branch', async () => {
+    const { ctx, worker, repo } = await boot([toolCallResponse('s1', SUBMIT_RULING_TOOL, submission), textResponse('done')], { mainBranch: null })
+    const index = await ctx.architecture.rebuild(repo)
+    const storage = index?.sections.find(section => section.anchor === 'storage')
+    if (storage === undefined) throw new Error('storage section missing')
+    await ctx.architecture.accept(repo, storage.path, storage.anchor, storage.hash)
+    const result = await ctx.architecture.consult({ worker, question: 'q', scope: [], signal: new AbortController().signal })
+    if (result.kind !== 'ruling') throw new Error(`expected a ruling, got ${result.kind}`)
+    // The accepted section binds; the committed but unaccepted #arch has no main branch to be checked against.
+    expect(result.ruling.constraints).toEqual([])
+    expect(result.ruling.unresolved.find(point => point.statement === 'Persist through the store.')?.reason)
+      .toBe('"design/arch.md#arch" cannot be checked against a committed version because the repository declares no main branch, and the user has not accepted it')
   })
 
   it('executes only the first of two submissions in one response', async () => {

@@ -27,7 +27,7 @@ English | [中文](README.zh.md)
 
 ### Install into a profile
 
-Add the bundle after `@deepseek-ai/dsh-web-app` in a Web profile's `dsh.profile.bundles`, then set the main branch in the profile's `cordis.patch.yml`:
+Add the bundle after `@deepseek-ai/dsh-web-app` in a Web profile's `dsh.profile.bundles`. Each repository names its main branch in its `architecture.yml`, so one profile serves repositories on different branches; to give every manifest without one a default, set it in the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: architecture

@@ -38,14 +38,13 @@ kind: "package-reference"
 ```yaml
 - id: architecture
   name: '@deepseek-ai/dsh-experimental-architecture'
-  config:
-    mainBranch: main
 ```
 
-提交一个以工作区相对 glob 列出来源文档的 manifest：
+提交一个声明仓库主分支、并以工作区相对 glob 列出来源文档的 manifest：
 
 ```yaml
 # architecture.yml
+mainBranch: main
 sources:
   - docs/architecture.md
   - docs/subsystems/*.md
@@ -53,9 +52,11 @@ exclude:
   - '**/*.zh.md'
 ```
 
+每个仓库的主分支取 manifest 的 `mainBranch`；manifest 未声明时取服务的 `mainBranch`。只有该分支的主 worktree checkout 能修改架构来源，裁定也只绑定已在该分支提交的章节。服务每次检查都会读取 manifest 中的分支，因此修改分支会立即生效。两者都未设置的仓库会以 `no-main-branch` 拒绝一切架构编辑，其裁定只绑定用户接受过的章节。
+
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `mainBranch` | 必填 | 只有在该分支的主 worktree checkout 中才能修改架构来源。 |
+| `mainBranch` | 未设置 | manifest 未声明主分支时，该仓库使用的主分支。 |
 | `manifestPath` | `architecture.yml` | manifest 的工作区相对路径。 |
 | `localDirectory` | `.architecture` | 本地架构条目及 Ruling、申诉与接受记录的工作区相对目录；其下所有路径都受保护。 |
 | `architectPreset` | `architect` | 该 agent preset 的 agent 只能运行 `architectTools`。 |
@@ -68,11 +69,11 @@ exclude:
 
 ### 成功与失败的表现
 
-`ctx.architecture.rebuild(cwd)` 返回包含 `cwd` 的仓库的索引；仓库没有 manifest 时返回 `undefined`；manifest 无效时抛出 `ManifestError`。过大、不可读或不是 UTF-8 的来源会出现在 `diagnostics` 中，而不会让重建失败。目标为受保护路径的 `write`、`edit` 或 `str_replace_editor` 调用会以指明该路径的错误结果失败。`ctx.architecture.edit()` 返回 `{ kind: 'written' }`，或 `kind` 为 `not-repository`、`linked-worktree`、`wrong-branch`、`not-protected`、`unknown-section`、`stale-section` 之一的拒绝；`describeRefusal()` 把它渲染成一句话。`ctx.architecture.consult()` 返回 `{ kind: 'ruling' }`、`timeout` 或 `no-submission`；worker 取消、worker 会话没有目录或仓库没有 manifest 时则 reject。`snapshot(cwd)` 返回仪表盘状态；`appeal()`、`adjudicate()` 与 `accept()` 在 Ruling 或申诉未知、申诉已裁决或章节哈希已变化时 reject，并在消息中指明原因。
+`ctx.architecture.rebuild(cwd)` 返回包含 `cwd` 的仓库的索引；仓库没有 manifest 时返回 `undefined`；manifest 无效时抛出 `ManifestError`。过大、不可读或不是 UTF-8 的来源会出现在 `diagnostics` 中，而不会让重建失败。目标为受保护路径的 `write`、`edit` 或 `str_replace_editor` 调用会以指明该路径的错误结果失败。`ctx.architecture.edit()` 返回 `{ kind: 'written' }`，或 `kind` 为 `not-repository`、`linked-worktree`、`no-main-branch`、`wrong-branch`、`not-protected`、`unknown-section`、`stale-section` 之一的拒绝；`describeRefusal()` 把它渲染成一句话。`ctx.architecture.consult()` 返回 `{ kind: 'ruling' }`、`timeout` 或 `no-submission`；worker 取消、worker 会话没有目录或仓库没有 manifest 时则 reject。`snapshot(cwd)` 返回仪表盘状态；`appeal()`、`adjudicate()` 与 `accept()` 在 Ruling 或申诉未知、申诉已裁决或章节哈希已变化时 reject，并在消息中指明原因。
 
 ### 检查提交与 CI
 
-本包附带 [`scripts/check-architecture.sh`](scripts/check-architecture.sh)，这是一个只使用 git 的 POSIX shell 脚本。在 pre-commit hook 中运行 `check-architecture.sh --main-branch main staged`，可拒绝在 `main` 主 worktree 之外修改 manifest 或来源的提交。在其他分支的 CI 中运行 `check-architecture.sh --main-branch main range origin/main HEAD`，可拒绝修改它们的提交范围。`--manifest <path>` 读取其他 manifest 路径。违规时退出码为 1，用法错误或无法读取的 manifest 为 2；它只读取 `sources:` 与 `exclude:` 下的块列表。
+本包附带 [`scripts/check-architecture.sh`](scripts/check-architecture.sh)，这是一个只使用 git 的 POSIX shell 脚本。在 pre-commit hook 中运行 `check-architecture.sh staged`，可拒绝在 manifest 的 `mainBranch` 主 worktree 之外修改 manifest 或来源的提交。在其他分支的 CI 中运行 `check-architecture.sh range origin/main HEAD`，可拒绝修改它们的提交范围。`--main-branch <branch>` 为未声明主分支的 manifest 指定分支；两者都没有时，`staged` 会拒绝一切此类修改。`--manifest <path>` 读取其他 manifest 路径。违规时退出码为 1，用法错误或无法读取的 manifest 为 2；它只读取 `sources:` 与 `exclude:` 下的块列表以及普通的 `mainBranch:` 值。
 
 -----
 

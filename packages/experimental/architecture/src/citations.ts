@@ -35,10 +35,10 @@ export type IsAccepted = (section: Pick<IndexedSection, 'path' | 'anchor' | 'has
 /**
  * Verify citations against one index and the committed sources. A section is
  * citable when its current content is committed on `mainBranch` or the user
- * accepted that exact content.
+ * accepted that exact content; without a main branch only accepted content is citable.
  * @param index - current index of the primary worktree.
  * @param cites - `path#anchor` references.
- * @param mainBranch - branch whose committed text is authoritative.
+ * @param mainBranch - branch whose committed text is authoritative, or undefined when the repository has none.
  * @param readCommitted - reads a source as committed on `mainBranch`.
  * @param isAccepted - whether the user accepted a section's current content.
  * @returns one check per citation, in input order.
@@ -46,7 +46,7 @@ export type IsAccepted = (section: Pick<IndexedSection, 'path' | 'anchor' | 'has
 export async function verifyCitations(
   index: ArchitectureIndex,
   cites: readonly string[],
-  mainBranch: string,
+  mainBranch: string | undefined,
   readCommitted: ReadCommitted,
   isAccepted: IsAccepted,
 ): Promise<CitationCheck[]> {
@@ -66,7 +66,7 @@ export async function verifyCitations(
       checks.push({ kind: 'failed', failure: { kind: 'unknown-section', cite } })
       continue
     }
-    if (!isAccepted(section) && (await committedHashes(section.path)).get(section.anchor) !== section.hash) {
+    if (!isAccepted(section) && (mainBranch === undefined || (await committedHashes(section.path)).get(section.anchor) !== section.hash)) {
       checks.push({ kind: 'failed', failure: { kind: 'uncommitted', cite, mainBranch } })
       continue
     }
@@ -87,6 +87,8 @@ export function describeCitationFailure(failure: CitationFailure): string {
     case 'unknown-section':
       return `"${failure.cite}" names no indexed architecture section`
     case 'uncommitted':
-      return `"${failure.cite}" differs from the section committed on ${failure.mainBranch}, or is not committed there, and the user has not accepted it`
+      return failure.mainBranch === undefined
+        ? `"${failure.cite}" cannot be checked against a committed version because the repository declares no main branch, and the user has not accepted it`
+        : `"${failure.cite}" differs from the section committed on ${failure.mainBranch}, or is not committed there, and the user has not accepted it`
   }
 }
