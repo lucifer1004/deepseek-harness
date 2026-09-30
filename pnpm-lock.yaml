@@ -7309,6 +7309,10 @@ importers:
         version: 4.3.1
 
   packages/experimental/api-architecture:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
@@ -7899,6 +7903,10 @@ importers:
         version: 18.3.1(react@18.3.1)
 
   packages/experimental/client-ui-architecture:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~

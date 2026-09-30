@@ -300,6 +300,10 @@
   border-top: 1px solid var(--dsw-alias-border-l3);
 }
 
+.decisionField {
+  flex-basis: 100%;
+}
+
 .option {
   display: flex;
   align-items: center;

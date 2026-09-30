@@ -416,13 +416,20 @@ function AppealCard({ appeal, question, decide, t }: {
             ))}
             {kind === 'exception' && (
               <Input
+                className={css.decisionField as string}
                 aria-label={t('appeal.exceptionScope')}
                 placeholder={t('appeal.exceptionPlaceholder')}
                 value={scope}
                 onChange={(event) => { setScope(event.target.value) }}
               />
             )}
-            <Input aria-label={t('appeal.note')} placeholder={t('appeal.note')} value={note} onChange={(event) => { setNote(event.target.value) }} />
+            <Input
+              className={css.decisionField as string}
+              aria-label={t('appeal.note')}
+              placeholder={t('appeal.note')}
+              value={note}
+              onChange={(event) => { setNote(event.target.value) }}
+            />
             <Button variant="primary" size="sm" disabled={kind === 'exception' && scope.trim() === ''} onClick={submit}>{t('appeal.submit')}</Button>
             {failed && <p className={css.notice} role="alert">{t('appeal.failed')}</p>}
           </fieldset>
