@@ -23,7 +23,6 @@ import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import ArchitectureService from '@deepseek-ai/dsh-experimental-architecture'
 import ArchitectureController from '@deepseek-ai/dsh-experimental-api-architecture'
-import * as ArchitectureUi from '@deepseek-ai/dsh-experimental-client-ui-architecture'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import * as WorkerTools from '@deepseek-ai/dsh-experimental-tool-architecture'
 import * as ArchitectTools from '@deepseek-ai/dsh-experimental-tool-architecture/architect'
@@ -74,7 +73,8 @@ const MODULES = new Map<string, unknown>([
   ['@deepseek-ai/dsh-experimental-tool-architecture', WorkerTools],
   ['@deepseek-ai/dsh-experimental-tool-architecture/architect', ArchitectTools],
   ['@deepseek-ai/dsh-experimental-api-architecture', ArchitectureController],
-  ['@deepseek-ai/dsh-experimental-client-ui-architecture', ArchitectureUi],
+  // The UI package's Host half is an empty marker; its browser half is a Client program this Host test cannot import.
+  ['@deepseek-ai/dsh-experimental-client-ui-architecture', { apply: () => {} }],
 ])
 
 const WORKSPACE = 'ws-1' as WorkspaceId

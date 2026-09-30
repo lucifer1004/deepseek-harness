@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 /** The dashboard follows one Workspace at a time, mounts its Remote and slots, and withdraws both on disposal. */
+import assert from 'node:assert/strict'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { RemoteStreamOptions } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
@@ -151,11 +152,20 @@ async function fixture(options: { fail?: boolean; workspaces?: Array<{ workspace
   return { ctx, unmount, architecture, select, create, openSession, setWorkspaces, listeners }
 }
 
+/** Narrow the erased registry payload before exercising its registered actions. */
+function assertDashboardActions(
+  value: Record<string, unknown> | undefined,
+): asserts value is Record<string, unknown> & ArchitecturePageInjected {
+  assert(value !== undefined)
+  for (const name of ['selectWorkspace', 'discuss', 'readSection', 'accept', 'adjudicate']) assert(typeof value[name] === 'function')
+  assert(typeof value.hooks === 'object' && value.hooks !== null)
+}
+
 function injected(ctx: Context): ArchitecturePageInjected {
   const entry = ctx.slots.entries('main').find(item => item.component === ArchitecturePage)
   const value = entry?.inject?.()
-  if (value === undefined || !('discuss' in value)) throw new Error('dashboard entry missing')
-  return value as ArchitecturePageInjected
+  assertDashboardActions(value)
+  return value
 }
 
 describe('mountArchitecture', () => {

@@ -106,11 +106,13 @@ function fixture(state: Partial<DashboardState> = {}, choices: readonly Workspac
     useArchitectureWorkspaces: bindSnapshotSelector(workspaces),
     selectWorkspace: vi.fn(),
     discuss: vi.fn(async () => true),
-    readSection: vi.fn(async (_ws: WorkspaceId, path: string, anchor: string) => ({ path, anchor, hash: path === 'design/new.md' ? OTHER : HASH, text: `## ${anchor}\n\nBody of ${anchor}.` })),
+    readSection: vi.fn<ArchitecturePageProps['readSection']>(async (_ws, path, anchor) => ({
+      path, anchor, hash: path === 'design/new.md' ? OTHER : HASH, text: `## ${anchor}\n\nBody of ${anchor}.`,
+    })),
     accept: vi.fn(async () => true),
     adjudicate: vi.fn(async () => true),
     t: makeTranslate(zh),
-  } satisfies Omit<ArchitecturePageProps, 'slotName' | 'slotKey'> & Record<string, unknown>
+  }
   render(<ArchitecturePage {...(props as never as ArchitecturePageProps)} />)
   return { props, dashboard }
 }
