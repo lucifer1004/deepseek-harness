@@ -873,7 +873,8 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-architecture`
 
 - `inject`: `subprocess` · `tools`
-- `source`: [`packages/experimental/architecture/src/types.ts:7`](../packages/experimental/architecture/src/types.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/experimental/architecture/src/types.ts:8`](../packages/experimental/architecture/src/types.ts)
 
 ```ts config-catalog
 /** Plugin configuration for `ctx.architecture`. */
@@ -894,6 +895,12 @@ export interface Config {
   maxSourceBytes: number
   /** Milliseconds a consultation waits for the architect to submit a Ruling. */
   consultTimeoutMs: number
+  /** Provider route of the consulted architect; unset runs it on the consulting worker's model. Read at each consultation. */
+  architectProvider: Volatile<string | undefined>
+  /** Model of the consulted architect, used together with `architectProvider`. Read at each consultation. */
+  architectModel: Volatile<string | undefined>
+  /** Reasoning effort of the consulted architect; unset keeps the model's default. Read at each consultation. */
+  architectReasoningEffort: Volatile<string | undefined>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-architecture -->

@@ -8,11 +8,11 @@ The experimental architecture agent keeps worker agents inside the workspace's r
 
 The repository's `architecture.yml` lists Markdown sources as globs, with an optional `exclude` list. The service indexes each source's headings as sections. An `IndexedSection` carries its path, GitHub-style anchor, title, level, line range, and content hash. `ArchitectureIndex` holds every section of every source from the primary worktree, plus diagnostics for sources that could not be read. The index revision hashes every section's path, anchor, and hash, so it changes whenever indexed content changes.
 
-Architecture sources change only on the configured main branch in the primary worktree. In a Jujutsu repository, colocated or not, the main branch is a bookmark, the primary checkout is the workspace that holds the repository, and a working copy is on the branch when the bookmark points to it or its parent. A `CheckoutState` records the checkout's `VcsKind`, its root, and whether it is primary. A repository without a manifest may receive a first manifest that declares the branch it is on. A global tool guard denies every other writer, including one that would create a file a source glob matches; the architect's `architecture_edit` tool checks the same rule, and an `ArchitectureEditRequest` may replace one section at the hash the architect read. `EditRefusal` names the violated condition.
+Architecture sources change only on the configured main branch in the primary worktree. In a Jujutsu repository, colocated or not, the main branch is a bookmark, the primary checkout is the workspace that holds the repository, and a working copy is on the branch when the bookmark points to it or its parent. A `CheckoutState` records the checkout's `VcsKind`, its root, and whether it is primary. A repository without a manifest may receive a first manifest that declares the branch it is on, and a manifest that declares no branch may be given one the checkout is on; a declared branch changes only from that branch. A global tool guard denies every other writer, including one that would create a file a source glob matches; the architect's `architecture_edit` tool checks the same rule, and an `ArchitectureEditRequest` may replace one section at the hash the architect read. `EditRefusal` names the violated condition.
 
 ## Consultation and Rulings
 
-A worker's `ConsultRequest` runs an architect agent as a hidden child of the worker Session. The architect may use only its configured tools and must call `submit_ruling`. The service turns the submission into a Ruling: a constraint binds only when every citation names an indexed section whose current content is committed on the main branch or accepted by the user. Other constraints become unresolved points with the reason. `ConsultResult` is a Ruling with its index revision, a timeout, or an ended run without a submission.
+A worker's `ConsultRequest` runs an architect agent as a hidden child of the worker Session, on the configured architect model or, when none is set, on the worker's model. The architect may use only its configured tools and must call `submit_ruling`. The service turns the submission into a Ruling: a constraint binds only when every citation names an indexed section whose current content is committed on the main branch or accepted by the user. Other constraints become unresolved points with the reason. `ConsultResult` is a Ruling with its index revision, a timeout, or an ended run without a submission.
 
 After the worker's tool result is committed, the tool package writes a `RulingRecord` under `.architecture/rulings/`. The record copies the Ruling, both Session ids, the index revision, and a status. The worker's log remains the authority for what the worker received; the record is a dashboard copy.
 
@@ -24,7 +24,7 @@ An `Acceptance` records one section at the exact content hash the user reviewed.
 
 ## Dashboard
 
-The dashboard is a main panel with a sidebar entry. It follows one Workspace through the `architecture` Remote `follow` stream, which yields an `ArchitectureSnapshot` after every `architecture/changed` event for that repository. Its views show the index with each source's git status, Rulings with their status and whether a cited section changed, appeals with the decision form, and files under the local directory with their git status. Discuss opens a new Session on the `architect` preset in the selected Workspace.
+The dashboard is a main panel with a sidebar entry. It follows one Workspace through the `architecture` Remote `follow` stream, which yields an `ArchitectureSnapshot` after every `architecture/changed` event for that repository. Its views show the index with each source's git status, Rulings with their status and whether a cited section changed, appeals with the decision form, files under the local directory with their git status, and settings. The Settings view declares the repository's main branch through the `setMainBranch` Remote method, under the edit rule, and edits the profile's architect model, the live `architectProvider`, `architectModel`, and `architectReasoningEffort` fields of the service configuration that each consultation reads. Discuss opens a new Session on the `architect` preset in the selected Workspace.
 
 ## Commit and CI check
 
@@ -185,6 +185,17 @@ async accept(cwd: string, path: string, anchor: string, hash: string): Promise<A
 async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>
 
 /**
+ * Declare the repository's main branch in its manifest. The write follows the edit rule: a repository that declares
+ * no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.
+ * @param cwd - any directory inside the repository.
+ * @param branch - the branch or jj bookmark to declare.
+ * @param signal - cancels jj queries.
+ * @returns the written manifest path, or the refusal.
+ * @throws {ManifestError} when the repository has no valid manifest or `branch` is not a branch name.
+ */
+async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult>
+
+/**
  * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
  * manifest: `content` written to the manifest path that declares the branch the checkout is on.
  * @param cwd - Session directory.
@@ -239,6 +250,15 @@ The `architecture` Remote namespace over `ctx.architecture`, addressed by Worksp
  * @returns the recorded acceptance.
  */
 @Remote async accept(request: ArchitectureAcceptRequest): Promise<Acceptance>
+
+/**
+ * Declare the repository's main branch in its manifest, under the main-branch edit rule.
+ * @param request - Workspace and branch.
+ * @param signal - Client cancellation.
+ * @returns the written manifest path.
+ * @throws `architecture/failed` naming the refusal when the rule is not met, or the manifest is missing or invalid.
+ */
+@Remote async setMainBranch(request: ArchitectureMainBranchRequest, signal: AbortSignal): Promise<{ readonly path: string }>
 
 /**
  * Decide a pending appeal and deliver the decision to the worker Session.

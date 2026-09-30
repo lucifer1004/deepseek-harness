@@ -52,6 +52,13 @@ export interface ArchitectureAcceptRequest extends ArchitectureSectionRequest {
   readonly hash: string
 }
 
+/** Declare a repository's main branch in its manifest. */
+export interface ArchitectureMainBranchRequest {
+  readonly workspaceId: WorkspaceId
+  /** Branch or jj bookmark to declare. */
+  readonly branch: string
+}
+
 /** Decide one pending appeal. */
 export interface ArchitectureAdjudicateRequest {
   readonly workspaceId: WorkspaceId

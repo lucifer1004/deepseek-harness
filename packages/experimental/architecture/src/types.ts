@@ -1,5 +1,6 @@
 /** Public types of the workspace architecture sources, section index, and edit rule. */
 
+import type { Volatile } from '@deepseek-ai/cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
@@ -21,6 +22,12 @@ export interface Config {
   maxSourceBytes: number
   /** Milliseconds a consultation waits for the architect to submit a Ruling. */
   consultTimeoutMs: number
+  /** Provider route of the consulted architect; unset runs it on the consulting worker's model. Read at each consultation. */
+  architectProvider: Volatile<string | undefined>
+  /** Model of the consulted architect, used together with `architectProvider`. Read at each consultation. */
+  architectModel: Volatile<string | undefined>
+  /** Reasoning effort of the consulted architect; unset keeps the model's default. Read at each consultation. */
+  architectReasoningEffort: Volatile<string | undefined>
 }
 
 /** Workspace-relative POSIX path of one architecture source file. */
@@ -297,6 +304,8 @@ export interface ArchitectureSnapshot {
   readonly revision: string
   /** The index, empty without a manifest. */
   readonly index: ArchitectureIndex
+  /** Branches or jj bookmarks the primary checkout is on, which `setMainBranch` may declare; absent when `unsupported` is set. */
+  readonly currentBranches?: readonly string[]
   /** Version-control state of each indexed source. */
   readonly sourceStatus: Readonly<Record<string, GitFileStatus>>
   /** Recorded Rulings, newest first, each with whether a cited section changed since issue. */

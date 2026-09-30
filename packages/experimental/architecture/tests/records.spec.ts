@@ -48,13 +48,13 @@ async function fixture(): Promise<string> {
   return repo
 }
 
-async function boot(config: Partial<Config> = {}): Promise<Context> {
+async function boot(config: Partial<Omit<Config, 'architectProvider' | 'architectModel' | 'architectReasoningEffort'>> = {}): Promise<Context> {
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
-  await ctx.plugin(ArchitectureService, { mainBranch: 'main', ...config } as Config)
+  await ctx.plugin(ArchitectureService, { mainBranch: 'main', ...config })
   return ctx
 }
 
@@ -161,7 +161,7 @@ describe('architecture records', () => {
       if (command === 'jj' || command === 'git') throw new Error(`${command}: not found`)
       return await resolve(command, env, signal)
     })
-    await ctx.plugin(ArchitectureService, { mainBranch: 'main' } as Config)
+    await ctx.plugin(ArchitectureService, { mainBranch: 'main' })
     const repo = await scratch()
     await mkdir(join(repo, '.jj', 'repo'), { recursive: true })
     expect(await ctx.architecture.snapshot(repo)).toMatchObject({ unsupported: { kind: 'vcs-missing', vcs: 'jj' }, hasManifest: false })

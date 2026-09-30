@@ -14,17 +14,18 @@ import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { scopeParentOf } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subprocess'
+import type {} from '@deepseek-ai/dsh-settings'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
-import { runConsultation, SUBMIT_RULING_TOOL } from './consultation.ts'
+import { runConsultation, SUBMIT_RULING_TOOL, type ConsultationRun } from './consultation.ts'
 import { GitFiles } from './git-files.ts'
 import { canonicalizeForWrite, isProtected, writeCall, writeTarget, type ProtectedPaths } from './guard.ts'
 import { JjFiles } from './jj-files.ts'
 import { buildIndex } from './index-builder.ts'
-import { declaredMainBranch, parseManifest } from './manifest.ts'
+import { declaredMainBranch, ManifestError, parseManifest, withMainBranch } from './manifest.ts'
 import { locateCheckout } from './repository.ts'
 import { ACCEPTANCES_FILE, APPEALS_DIRECTORY, isMissing, RecordStore, RULINGS_DIRECTORY } from './records.ts'
 import { validateRuling } from './ruling.ts'
@@ -218,7 +219,7 @@ export const DEFAULT_ARCHITECT_TOOLS: readonly string[] = [
 export class ArchitectureService extends Service {
   static inject = ['subprocess', 'tools']
 
-  static Config: z<Config> = z.object({
+  static Config = z.object({
     mainBranch: z.string().description('Main branch of a repository whose manifest declares no `mainBranch`.'),
     manifestPath: z.string().default('architecture.yml').description('Workspace-relative path of the architecture manifest.'),
     localDirectory: z.string().default('.architecture').description('Workspace-relative directory holding local architecture entries.'),
@@ -228,6 +229,9 @@ export class ArchitectureService extends Service {
     gitTimeoutMs: z.natural().min(1).default(10_000).description('Milliseconds a git command may run before it is terminated.'),
     maxSourceBytes: z.natural().min(1).default(1_048_576).description('Byte cap on one manifest source read while indexing.'),
     consultTimeoutMs: z.natural().min(1).default(300_000).description('Milliseconds a consultation waits for the architect to submit a Ruling.'),
+    architectProvider: z.string().volatile().description('Provider route of the consulted architect; unset runs it on the consulting worker\'s model.'),
+    architectModel: z.string().volatile().description('Model of the consulted architect, used together with `architectProvider`.'),
+    architectReasoningEffort: z.string().volatile().description('Reasoning effort of the consulted architect; unset keeps the model\'s default.'),
   })
 
   private readonly config: Config
@@ -242,6 +246,8 @@ export class ArchitectureService extends Service {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'architecture')
+    // The dashboard and the Plugins page render this plugin's settings, so no page is generated from its schema.
+    ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
     for (const [field, value] of [['manifestPath', config.manifestPath], ['localDirectory', config.localDirectory]] as const) {
       if (value.length === 0 || isAbsolute(value) || value.split(/[\\/]/).includes('..')) {
         throw new Error(`architecture: ${field} must be a workspace-relative path without ".." segments`)
@@ -423,7 +429,11 @@ export class ArchitectureService extends Service {
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`
     await writeFile(temporary, content, { signal: request.signal })
     await rename(temporary, target)
+    const before = this.revisions.get(checkout.primaryRoot)
     await this.rebuild(checkout.root, request.signal)
+    // A write that leaves every section alone, such as a changed mainBranch or a record file, still changes the
+    // snapshot, so it is announced when the rebuild did not.
+    if (this.revisions.get(checkout.primaryRoot) === before) this.changed(checkout.primaryRoot)
     return { kind: 'written', path }
   }
 
@@ -476,6 +486,7 @@ export class ArchitectureService extends Service {
       prompt: `${request.question}${scopeLine}`,
       preset: this.config.architectPreset,
       tools: this.config.architectTools,
+      model: this.architectModel(),
       timeoutMs: this.config.consultTimeoutMs,
       signal: request.signal,
     })
@@ -654,7 +665,12 @@ export class ArchitectureService extends Service {
     const localEntries = await this.localEntries(root)
     const records = await this.store(root).read()
     const mainBranch = this.mainBranchOf(root)
-    const status = await this.filesOf(checkout).status(root, mainBranch, [...index.sources, ...localEntries], signal)
+    const files = this.filesOf(checkout)
+    const status = await files.status(root, mainBranch, [...index.sources, ...localEntries], signal)
+    // Writes happen in the primary checkout, so its branches are the ones setMainBranch may declare.
+    const primary = locateCheckout(root)
+    /* v8 ignore next -- root is the primary root of a located checkout, so it locates. */
+    const currentBranches = primary === undefined ? [] : await files.currentBranches(primary, signal)
     const gitStatus = (path: string): GitFileStatus => status.get(path) ?? 'committed'
     const current = new Map(index.sections.map(section => [`${section.path}#${section.anchor}`, section.hash]))
     const rulings = [...records.rulings.values()]
@@ -670,6 +686,7 @@ export class ArchitectureService extends Service {
       root,
       vcs: checkout.vcs,
       ...(mainBranch === undefined ? {} : { mainBranch }),
+      currentBranches,
       manifestPath: this.config.manifestPath,
       localDirectory: this.config.localDirectory,
       hasManifest: this.roots.get(root)?.manifest !== undefined,
@@ -682,6 +699,32 @@ export class ArchitectureService extends Service {
       localEntries: localEntries.map((path): LocalEntry => ({ path, status: gitStatus(path) })),
       problems: records.problems.map(problem => ({ file: posix.join(this.config.localDirectory, problem.file), message: problem.message })),
     }
+  }
+
+  /**
+   * Declare the repository's main branch in its manifest. The write follows the edit rule: a repository that declares
+   * no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.
+   * @param cwd - any directory inside the repository.
+   * @param branch - the branch or jj bookmark to declare.
+   * @param signal - cancels jj queries.
+   * @returns the written manifest path, or the refusal.
+   * @throws {ManifestError} when the repository has no valid manifest or `branch` is not a branch name.
+   */
+  async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult> {
+    const checkout = this.requireCheckout(cwd)
+    let text: string
+    try {
+      text = await readFile(join(checkout.primaryRoot, this.config.manifestPath), 'utf8')
+    } catch (error) {
+      throw new ManifestError(`${this.config.manifestPath}: cannot read the manifest: ${String(error)}`)
+    }
+    const content = withMainBranch(text, branch, this.config.manifestPath)
+    // A manifest that declares no branch gains one the checkout is on, as a first manifest does; edit() then checks
+    // the branch that governs the repository today, the declared one or the service default.
+    if (declaredMainBranch(text) === undefined && !await this.filesOf(checkout).onBranch(checkout, branch, signal)) {
+      return { kind: 'refused', refusal: { kind: 'wrong-branch', vcs: checkout.vcs, branch: checkout.branch, mainBranch: branch } }
+    }
+    return await this.edit({ cwd: checkout.primaryRoot, path: this.config.manifestPath, content, signal })
   }
 
   /**
@@ -728,6 +771,15 @@ export class ArchitectureService extends Service {
       return this.config.mainBranch
     }
     return declaredMainBranch(text) ?? this.config.mainBranch
+  }
+
+  /** The configured architect model, read now so a settings change applies to the next consultation. */
+  private architectModel(): ConsultationRun['model'] {
+    const provider = this.config.architectProvider.get()
+    const model = this.config.architectModel.get()
+    if (provider === undefined || model === undefined) return undefined
+    const effort = this.config.architectReasoningEffort.get()
+    return { provider, model, ...effort === undefined ? {} : { reasoningEffort: ReasoningEffortId(effort) } }
   }
 
   private primaryRoot(cwd: string): string {

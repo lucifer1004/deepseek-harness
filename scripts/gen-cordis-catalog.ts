@@ -689,6 +689,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   VcsKind: 'architecture-agent.md',
   ArchitectureAcceptRequest: 'architecture-agent.md',
   ArchitectureAdjudicateRequest: 'architecture-agent.md',
+  ArchitectureMainBranchRequest: 'architecture-agent.md',
   ArchitectureSectionRequest: 'architecture-agent.md',
   ArchitectureSectionValue: 'architecture-agent.md',
   TranscriptionRequest: 'voice-input.md',

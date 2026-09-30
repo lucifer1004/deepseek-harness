@@ -7,13 +7,14 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import type {} from '@deepseek-ai/dsh-experimental-architecture'
-import type { Acceptance, AppealRecord, ArchitectureSnapshot } from '@deepseek-ai/dsh-experimental-architecture/types'
+import { describeRefusal } from '@deepseek-ai/dsh-experimental-architecture'
+import type { Acceptance, AppealRecord, ArchitectureEditResult, ArchitectureSnapshot } from '@deepseek-ai/dsh-experimental-architecture/types'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
   ArchitectureAcceptRequest,
   ArchitectureAdjudicateRequest,
+  ArchitectureMainBranchRequest,
   ArchitectureSectionRequest,
   ArchitectureSectionValue,
 } from './types.ts'
@@ -152,6 +153,28 @@ export default class ArchitectureController extends TypertRemoteService {
     } catch (error) {
       throw failed(error)
     }
+  }
+
+  /**
+   * Declare the repository's main branch in its manifest, under the main-branch edit rule.
+   * @param request - Workspace and branch.
+   * @param signal - Client cancellation.
+   * @returns the written manifest path.
+   * @throws `architecture/failed` naming the refusal when the rule is not met, or the manifest is missing or invalid.
+   */
+  @Remote
+  async setMainBranch(request: ArchitectureMainBranchRequest, signal: AbortSignal): Promise<{ readonly path: string }> {
+    const path = this.workspacePath(request.workspaceId)
+    let result: ArchitectureEditResult
+    try {
+      result = await this.ctx.architecture.setMainBranch(path, request.branch, signal)
+    } catch (error) {
+      signal.throwIfAborted()
+      throw failed(error)
+    }
+    signal.throwIfAborted()
+    if (result.kind === 'refused') throw failed(new Error(describeRefusal(result.refusal)))
+    return { path: result.path }
   }
 
   /**

@@ -504,6 +504,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['for an invalid manifest or a version-control failure.'],
       },
       {
+        signature: 'async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult>',
+        description: 'Declare the repository\'s main branch in its manifest. The write follows the edit rule: a repository that declares no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.',
+        parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }, { name: 'branch', description: 'the branch or jj bookmark to declare.' }, { name: 'signal', description: 'cancels jj queries.' }],
+        returns: 'the written manifest path, or the refusal.',
+        throws: ['{ManifestError} when the repository has no valid manifest or `branch` is not a branch name.'],
+      },
+      {
         signature: 'async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined>',
         description: 'Evaluate the edit rule without writing. A repository without a main branch may still receive its first manifest: `content` written to the manifest path that declares the branch the checkout is on.',
         parameters: [{ name: 'cwd', description: 'Session directory.' }, { name: 'path', description: 'target, relative to the repository root or absolute.' }, { name: 'content', description: 'the content {@link edit} would write; only a first manifest reads it.' }, { name: 'signal', description: 'cancels a jj branch query.' }],
@@ -539,6 +546,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Accept a section\'s reviewed content so Rulings may cite it before it is committed.',
         parameters: [{ name: 'request', description: 'Workspace, section, and the reviewed hash.' }],
         returns: 'the recorded acceptance.',
+      },
+      {
+        signature: '@Remote async setMainBranch(request: ArchitectureMainBranchRequest, signal: AbortSignal): Promise<{ readonly path: string }>',
+        description: 'Declare the repository\'s main branch in its manifest, under the main-branch edit rule.',
+        parameters: [{ name: 'request', description: 'Workspace and branch.' }, { name: 'signal', description: 'Client cancellation.' }],
+        returns: 'the written manifest path.',
+        throws: ['`architecture/failed` naming the refusal when the rule is not met, or the manifest is missing or invalid.'],
       },
       {
         signature: '@Remote async adjudicate(request: ArchitectureAdjudicateRequest): Promise<AppealRecord>',
@@ -4729,6 +4743,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ArchitectureIndex {\n    readonly root: string;\n    readonly sources: readonly SourcePath[];\n    readonly sections: readonly IndexedSection[];\n    readonly diagnostics: readonly IndexDiagnostic[];\n}',
   },
   {
+    name: 'ArchitectureMainBranchRequest',
+    declaration: 'export interface ArchitectureMainBranchRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly branch: string;\n}',
+  },
+  {
     name: 'ArchitectureSectionRequest',
     declaration: 'export interface ArchitectureSectionRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly anchor: string;\n}',
   },
@@ -4738,7 +4756,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ArchitectureSnapshot',
-    declaration: 'export interface ArchitectureSnapshot {\n    readonly root: string;\n    readonly vcs?: VcsKind;\n    readonly unsupported?: {\n        readonly kind: \'no-repository\';\n    } | {\n        readonly kind: \'vcs-missing\';\n        readonly vcs: VcsKind;\n    };\n    readonly mainBranch?: string;\n    readonly manifestPath: string;\n    readonly localDirectory: string;\n    readonly hasManifest: boolean;\n    readonly revision: string;\n    readonly index: ArchitectureIndex;\n    readonly sourceStatus: Readonly<Record<string, GitFileStatus>>;\n    readonly rulings: ReadonlyArray<RulingRecord & {\n        readonly stale: boolean;\n    }>;\n    readonly appeals: readonly AppealRecord[];\n    readonly acceptances: readonly Acceptance[];\n    readonly localEntries: readonly LocalEntry[];\n    readonly problems: ReadonlyArray<{\n        readonly file: string;\n        readonly message: string;\n    }>;\n}',
+    declaration: 'export interface ArchitectureSnapshot {\n    readonly root: string;\n    readonly vcs?: VcsKind;\n    readonly unsupported?: {\n        readonly kind: \'no-repository\';\n    } | {\n        readonly kind: \'vcs-missing\';\n        readonly vcs: VcsKind;\n    };\n    readonly mainBranch?: string;\n    readonly manifestPath: string;\n    readonly localDirectory: string;\n    readonly hasManifest: boolean;\n    readonly revision: string;\n    readonly index: ArchitectureIndex;\n    readonly currentBranches?: readonly string[];\n    readonly sourceStatus: Readonly<Record<string, GitFileStatus>>;\n    readonly rulings: ReadonlyArray<RulingRecord & {\n        readonly stale: boolean;\n    }>;\n    readonly appeals: readonly AppealRecord[];\n    readonly acceptances: readonly Acceptance[];\n    readonly localEntries: readonly LocalEntry[];\n    readonly problems: ReadonlyArray<{\n        readonly file: string;\n        readonly message: string;\n    }>;\n}',
   },
   {
     name: 'ArchiveSessionOptions',

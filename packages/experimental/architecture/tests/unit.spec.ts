@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { canonicalizeForWrite, isProtected, writeTarget, type WriteCall } from '../src/guard.ts'
 import { matchSources } from '../src/index-builder.ts'
-import { declaredMainBranch, ManifestError, parseManifest } from '../src/manifest.ts'
+import { declaredMainBranch, ManifestError, parseManifest, withMainBranch } from '../src/manifest.ts'
 import { locateCheckout } from '../src/repository.ts'
 import { githubSlug, hashSection, indexSections } from '../src/sections.ts'
 import type { SourcePath } from '../src/types.ts'
@@ -30,6 +30,29 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 const path = (value: string): SourcePath => brandString<SourcePath>(value)
+
+describe('withMainBranch', () => {
+  it('replaces a declared branch in place, keeping every other byte', () => {
+    expect(withMainBranch('# record\nmainBranch: main  # the branch\nsources:\n  - a.md    # doc\n', 'trunk', 'architecture.yml'))
+      .toBe('# record\nmainBranch: "trunk"  # the branch\nsources:\n  - a.md    # doc\n')
+    expect(withMainBranch('sources: [a.md]\nmainBranch: "main"\n', 'release/2', 'architecture.yml')).toBe('sources: [a.md]\nmainBranch: "release/2"\n')
+  })
+
+  it('adds the key before the first key of a block or flow mapping', () => {
+    expect(withMainBranch('# record\n\n# sources\nsources:\n  - a.md\nexclude: [b.md]\n', 'main', 'architecture.yml'))
+      .toBe('# record\n\n# sources\nmainBranch: "main"\nsources:\n  - a.md\nexclude: [b.md]\n')
+    expect(withMainBranch('---\n{sources: [a.md]}\n', 'main', 'architecture.yml')).toBe('---\n{mainBranch: "main", sources: [a.md]}\n')
+  })
+
+  it('quotes a branch YAML would read as another type', () => {
+    for (const branch of ['yes', '1.0', 'null']) expect(declaredMainBranch(withMainBranch('sources: [a.md]\n', branch, 'architecture.yml'))).toBe(branch)
+  })
+
+  it('refuses a name that is not a branch and a manifest that is not valid', () => {
+    expect(() => withMainBranch('sources: [a.md]\n', 'a b', 'architecture.yml')).toThrow('architecture.yml: mainBranch "a b" is not a branch name')
+    expect(() => withMainBranch('sources: []\n', 'main', 'architecture.yml')).toThrow(ManifestError)
+  })
+})
 
 describe('parseManifest', () => {
   it('accepts workspace-relative source globs', () => {

@@ -13,7 +13,6 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import ArchitectureService from '@deepseek-ai/dsh-experimental-architecture'
-import type { Config as ArchitectureConfig } from '@deepseek-ai/dsh-experimental-architecture'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -65,7 +64,7 @@ async function boot(script: Script): Promise<{ ctx: Context; adapter: MockAdapte
   const tools = pathToFileURL(join(FIXTURES, 'plugins/preset-tools.js')).href
   await ctx.agentPresets.register({ id: 'coding', plugins: [{ name: tools, config: { tools: ['read', 'write'] } }] })
   await ctx.agentPresets.register({ id: 'architect', plugins: [{ name: tools, config: { tools: ['read', 'write'] } }] })
-  await ctx.plugin(ArchitectureService, { mainBranch: 'main', architectTools: ARCHITECT_TOOLS } as ArchitectureConfig)
+  await ctx.plugin(ArchitectureService, { mainBranch: 'main', architectTools: ARCHITECT_TOOLS })
   await ctx.plugin(WorkerTools)
   const adapter = new MockAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)

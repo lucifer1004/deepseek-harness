@@ -8,6 +8,7 @@ import type { AppealId, ArchitectureSnapshot, RulingId } from '@deepseek-ai/dsh-
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { ArchitecturePage, type ArchitecturePageProps, type WorkspaceChoice } from '../src/client/ArchitecturePage.tsx'
 import type { DashboardState } from '../src/client/dashboard-source.ts'
+import type { ArchitectModelForm, ArchitectModelState } from '../src/client/architect-model.ts'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(() => { cleanup() })
@@ -98,12 +99,44 @@ function snapshot(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSn
   }
 }
 
+/** A snapshot of a repository whose manifest declares no main branch. */
+function undeclared(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSnapshot {
+  const { mainBranch: _omitted, ...rest } = snapshot(overrides)
+  return rest
+}
+
 /** Expand one source's disclosure row so its sections are listed. */
 function expand(path: string): void {
   fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }))
 }
 
-function fixture(state: Partial<DashboardState> = {}, choices: readonly WorkspaceChoice[] = [{ workspaceId: WS, title: 'repo' }]) {
+/** An architect-model form over a store the test drives; actions are spies. */
+function modelForm(state: Partial<ArchitectModelState> = {}) {
+  const store = createSnapshotStore<ArchitectModelState>({
+    available: true, writable: true, saved: undefined, draft: undefined, catalog: 'ready', saving: false, failed: false,
+    groups: [
+      { id: 'deepseek', name: 'DeepSeek', models: [{ id: 'chat', name: 'Chat' }, {
+        id: 'reasoner', name: 'Reasoner', reasoning: { efforts: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }] },
+      }] },
+    ],
+    ...state,
+  })
+  const form: ArchitectModelForm = {
+    state: store,
+    stage: vi.fn<ArchitectModelForm['stage']>((choice) => { store.set({ ...store.getSnapshot(), draft: choice }) }),
+    save: vi.fn(async () => {}),
+    discard: vi.fn(),
+    load: vi.fn(),
+    dispose: vi.fn(),
+  }
+  return { form, store }
+}
+
+function fixture(
+  state: Partial<DashboardState> = {},
+  choices: readonly WorkspaceChoice[] = [{ workspaceId: WS, title: 'repo' }],
+  architectModel?: ArchitectModelForm,
+) {
   const dashboard = createSnapshotStore<DashboardState>({ workspaceId: WS, snapshot: snapshot(), error: null, ...state })
   const workspaces = createSnapshotStore<readonly WorkspaceChoice[]>(choices)
   const props = {
@@ -116,6 +149,8 @@ function fixture(state: Partial<DashboardState> = {}, choices: readonly Workspac
     })),
     accept: vi.fn(async () => true),
     adjudicate: vi.fn(async () => true),
+    setMainBranch: vi.fn<ArchitecturePageProps['setMainBranch']>(async () => undefined),
+    architectModel,
     t: makeTranslate(zh),
   }
   render(<ArchitecturePage {...(props as never as ArchitecturePageProps)} />)
@@ -258,6 +293,79 @@ describe('ArchitecturePage', () => {
     expect(screen.getByText(zh['appeals.empty'])).toBeTruthy()
     tab(zh['tab.architecture'])
     expect(screen.getByText(/此仓库还没有 architecture.yml/)).toBeTruthy()
+  })
+
+  it('declares the main branch from the branches the checkout is on and reports the outcome', async () => {
+    const { props, dashboard } = fixture({ snapshot: undeclared({ currentBranches: ['trunk', 'dev'] }) })
+    tab(zh['tab.settings'])
+    const branch = screen.getByLabelText(zh['settings.mainBranch']) as HTMLSelectElement
+    expect(branch.value).toBe('trunk')
+    expect([...branch.options].map(option => option.textContent)).toEqual([zh['settings.mainBranch.none'], 'trunk · 当前所在', 'dev · 当前所在'])
+    expect(screen.getByText(zh['settings.mainBranch.hint'])).toBeTruthy()
+    expect(screen.queryByText(zh['settings.mainBranch.rule'])).toBeNull()
+    // Without a settings client there is no profile group.
+    expect(screen.queryByText(zh['settings.profile'])).toBeNull()
+    fireEvent.change(branch, { target: { value: 'dev' } })
+    fireEvent.click(screen.getByRole('button', { name: zh['settings.mainBranch.apply'] }))
+    await waitFor(() => { expect(props.setMainBranch).toHaveBeenCalledWith(WS, 'dev') })
+    expect(await screen.findByText('已写入 architecture.yml，请审阅并提交')).toBeTruthy()
+
+    // A declared branch the checkout has left is still listed, and the write needs a different choice.
+    props.setMainBranch.mockResolvedValueOnce('architecture sources change only on branch main')
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: snapshot({ vcs: 'jj', mainBranch: 'main', currentBranches: ['dev'] }) })
+    await waitFor(() => { expect(branch.value).toBe('main') })
+    expect(screen.getByText(zh['settings.mainBranch.hint.jj'])).toBeTruthy()
+    expect(screen.getByText(zh['settings.mainBranch.rule'])).toBeTruthy()
+    const write = screen.getByRole('button', { name: zh['settings.mainBranch.apply'] }) as HTMLButtonElement
+    expect(write.disabled).toBe(true)
+    fireEvent.change(branch, { target: { value: 'dev' } })
+    fireEvent.click(write)
+    expect(await screen.findByText('未能写入：architecture sources change only on branch main')).toBeTruthy()
+  })
+
+  it('explains why the main branch cannot be declared', () => {
+    const { dashboard } = fixture({ snapshot: undeclared({ hasManifest: false, currentBranches: ['main'] }) })
+    tab(zh['tab.settings'])
+    expect(screen.getByText('此仓库还没有 architecture.yml，请先开启架构讨论建立它')).toBeTruthy()
+    expect(screen.getByLabelText<HTMLSelectElement>(zh['settings.mainBranch']).disabled).toBe(true)
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: undeclared() })
+    return waitFor(() => { expect(screen.getByText(zh['settings.mainBranch.noBranches'])).toBeTruthy() })
+  })
+
+  it('stages the architect model and its reasoning effort, then saves', async () => {
+    const { form, store } = modelForm({ saved: { provider: 'gone', model: 'old' } })
+    fixture({}, undefined, form)
+    tab(zh['tab.settings'])
+    expect(form.load).toHaveBeenCalled()
+    expect(screen.getByText(zh['settings.profile'])).toBeTruthy()
+    const model = screen.getByLabelText(zh['settings.architectModel']) as HTMLSelectElement
+    expect(model.selectedOptions[0]?.textContent).toBe('gone/old（当前不可用）')
+    const save = screen.getByRole('button', { name: zh['settings.save'] }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+    fireEvent.change(model, { target: { value: 'deepseek\nreasoner' } })
+    expect(form.stage).toHaveBeenLastCalledWith({ provider: 'deepseek', model: 'reasoner' })
+    const effort = screen.getByLabelText(zh['settings.architectModel.effort']) as HTMLSelectElement
+    fireEvent.change(effort, { target: { value: 'high' } })
+    expect(form.stage).toHaveBeenLastCalledWith({ provider: 'deepseek', model: 'reasoner', reasoningEffort: 'high' })
+    fireEvent.change(effort, { target: { value: '' } })
+    expect(form.stage).toHaveBeenLastCalledWith({ provider: 'deepseek', model: 'reasoner' })
+    fireEvent.click(save)
+    expect(form.save).toHaveBeenCalledOnce()
+    fireEvent.change(model, { target: { value: '' } })
+    expect(form.stage).toHaveBeenLastCalledWith(null)
+    expect(screen.queryByLabelText(zh['settings.architectModel.effort'])).toBeNull()
+    store.set({ ...store.getSnapshot(), saving: true })
+    expect(await screen.findByRole('button', { name: zh['settings.saving'] })).toBeTruthy()
+    store.set({ ...store.getSnapshot(), saving: false, failed: true, catalog: 'error', writable: false })
+    expect(await screen.findByText(zh['settings.saveFailed'])).toBeTruthy()
+    expect(screen.getByText(zh['settings.readOnly'])).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh['settings.architectModel.retry'] }))
+    expect(form.load).toHaveBeenCalledTimes(2)
+    tab(zh['tab.local'])
+    expect(form.discard).toHaveBeenCalledOnce()
+    tab(zh['tab.settings'])
+    store.set({ ...store.getSnapshot(), available: false })
+    expect(await screen.findByText(zh['settings.unavailable'])).toBeTruthy()
   })
 
   it('opens an Architecture Session and reports a failure to open one', async () => {

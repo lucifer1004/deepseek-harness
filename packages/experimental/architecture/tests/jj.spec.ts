@@ -8,7 +8,6 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ArchitectureService, { describeRefusal } from '../src/index.ts'
-import type { Config } from '../src/index.ts'
 import { JjFiles, jjString } from '../src/jj-files.ts'
 import { locateCheckout } from '../src/repository.ts'
 import { hasJj, jj } from './jj-support.ts'
@@ -50,7 +49,7 @@ async function boot(): Promise<Context> {
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
-  await ctx.plugin(ArchitectureService, {} as Config)
+  await ctx.plugin(ArchitectureService, {})
   return ctx
 }
 

@@ -14,6 +14,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ArchitectureService, { describeRefusal, ManifestError } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
+import { omitsGeneratedPage } from '../../../settings/settings/tests/live-config.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -45,7 +46,7 @@ async function fixture(): Promise<{ repo: string; linked: string }> {
   return { repo, linked }
 }
 
-async function boot(config: Partial<Omit<Config, 'mainBranch'>> & { mainBranch?: string | null } = {}): Promise<Context> {
+async function boot(config: Partial<Omit<Config, 'mainBranch' | 'architectProvider' | 'architectModel' | 'architectReasoningEffort'>> & { mainBranch?: string | null } = {}): Promise<Context> {
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   await ctx.plugin(SystemPrompt, {})
@@ -53,7 +54,7 @@ async function boot(config: Partial<Omit<Config, 'mainBranch'>> & { mainBranch?:
   await ctx.plugin(LocalSubprocessRuntime)
   const { mainBranch = 'main', ...rest } = config
   // A null mainBranch boots the service without a default branch.
-  await ctx.plugin(ArchitectureService, { ...(mainBranch === null ? {} : { mainBranch }), ...rest } as Config)
+  await ctx.plugin(ArchitectureService, { ...(mainBranch === null ? {} : { mainBranch }), ...rest })
   await ctx.plugin(Object.assign((inner: Context) => {
     for (const name of ['write', 'edit', 'str_replace_editor', 'read']) {
       inner.tools.register({
@@ -197,6 +198,38 @@ describe('ArchitectureService', () => {
     expect(await ctx.architecture.checkEdit(root, 'architecture.yml')).toBeUndefined()
   })
 
+  it('declares the main branch under the edit rule and lists the branches the checkout is on', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-architecture-branch-')))
+    cleanups.push(() => rm(root, { recursive: true, force: true }))
+    await mkdir(join(root, 'docs'))
+    await writeFile(join(root, 'architecture.yml'), '# Record\n\nsources:\n  - docs/*.md\n')
+    await writeFile(join(root, 'docs', 'a.md'), '# A\n')
+    git(root, 'init', '-q', '-b', 'trunk')
+    git(root, 'add', '-A')
+    git(root, 'commit', '-q', '-m', 'init')
+    const ctx = await boot({ mainBranch: null })
+    expect(await ctx.architecture.snapshot(root)).toMatchObject({ currentBranches: ['trunk'] })
+    // The branch changes no section, yet the dashboard must learn of the new snapshot.
+    const changes: string[] = []
+    ctx.on('architecture/changed', (changed) => { changes.push(changed) })
+
+    // An undeclared branch may be one the checkout is on.
+    expect(await ctx.architecture.setMainBranch(root, 'main'))
+      .toMatchObject({ kind: 'refused', refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
+    expect(await ctx.architecture.setMainBranch(root, 'trunk')).toEqual({ kind: 'written', path: 'architecture.yml' })
+    expect(await readFile(join(root, 'architecture.yml'), 'utf8')).toBe('# Record\n\nmainBranch: "trunk"\nsources:\n  - docs/*.md\n')
+    expect((await ctx.architecture.snapshot(root)).mainBranch).toBe('trunk')
+    expect(changes).toEqual([root])
+
+    // A declared branch changes only from that branch.
+    expect(await ctx.architecture.setMainBranch(root, 'main')).toEqual({ kind: 'written', path: 'architecture.yml' })
+    expect(await ctx.architecture.setMainBranch(root, 'trunk'))
+      .toMatchObject({ kind: 'refused', refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
+    await expect(ctx.architecture.setMainBranch(root, 'a b')).rejects.toThrow(ManifestError)
+    await rm(join(root, 'architecture.yml'))
+    await expect(ctx.architecture.setMainBranch(root, 'trunk')).rejects.toThrow(/cannot read the manifest/)
+  })
+
   it('protects a linked worktree copy of a source outside the primary index directory', async () => {
     const { repo, linked } = await fixture()
     const ctx = await boot({ localDirectory: '.architecture' })
@@ -266,6 +299,13 @@ describe('ArchitectureService', () => {
     expect(await bare.architecture.snapshot(repo)).not.toHaveProperty('mainBranch')
   })
 
+  it('keeps its own instance off the generated Settings pages', () => omitsGeneratedPage(async (ctx) => {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    return ctx.plugin(ArchitectureService, { mainBranch: 'main' })
+  }))
+
   it('withdraws the guard when the plugin unloads', async () => {
     const { repo } = await fixture()
     const ctx = new Context()
@@ -273,7 +313,7 @@ describe('ArchitectureService', () => {
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
-    const fiber = await ctx.plugin(ArchitectureService, { mainBranch: 'main' } as Config)
+    const fiber = await ctx.plugin(ArchitectureService, { mainBranch: 'main' })
     await ctx.plugin(Object.assign((inner: Context) => {
       inner.tools.register({
         name: 'write', description: 'write', parameters: { type: 'object', properties: {} },

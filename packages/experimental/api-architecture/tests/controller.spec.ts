@@ -1,13 +1,13 @@
 /** The architecture Remote namespace resolves Workspaces, reads snapshots, follows changes, and forwards decisions. */
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import ArchitectureService from '@deepseek-ai/dsh-experimental-architecture'
-import type { AppealId, Config, RulingId } from '@deepseek-ai/dsh-experimental-architecture'
+import type { AppealId, RulingId } from '@deepseek-ai/dsh-experimental-architecture'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -55,7 +55,7 @@ async function boot(): Promise<{ ctx: Context; api: ArchitectureController; repo
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
-  await ctx.plugin(ArchitectureService, { mainBranch: 'main' } as Config)
+  await ctx.plugin(ArchitectureService, { mainBranch: 'main' })
   // The controller only needs the service to exist; the Gateway is not under test.
   ctx.provide('typert', {})
   await ctx.plugin((inner: Context) => { new Workspaces(inner, repo) })
@@ -114,6 +114,23 @@ describe('architecture Remote namespace', () => {
     thrower.mockRestore()
     const adjudication = await remoteError(api.adjudicate({ workspaceId: WORKSPACE, appealId: brandString<AppealId>('appeal-x'), adjudication: { kind: 'uphold' } }))
     expect(adjudication.message).toMatch(/no appeal appeal-x/)
+  })
+
+  it('declares the main branch in the manifest and reports a refusal', async () => {
+    const { api, repo } = await boot()
+    const signal = new AbortController().signal
+    expect((await api.snapshot(WORKSPACE, signal)).currentBranches).toEqual(['main'])
+    expect(await api.setMainBranch({ workspaceId: WORKSPACE, branch: 'main' }, signal)).toEqual({ path: 'architecture.yml' })
+    expect(await readFile(join(repo, 'architecture.yml'), 'utf8')).toBe('mainBranch: "main"\nsources:\n  - design/*.md\n')
+    // From main, the branch may move on; afterwards the checkout is no longer on the declared branch.
+    await api.setMainBranch({ workspaceId: WORKSPACE, branch: 'trunk' }, signal)
+    const refused = await remoteError(api.setMainBranch({ workspaceId: WORKSPACE, branch: 'main' }, signal))
+    expect(refused.code).toBe('architecture/failed')
+    expect(refused.message).toBe('architecture sources change only on branch trunk; the checkout is on main')
+    expect((await remoteError(api.setMainBranch({ workspaceId: WORKSPACE, branch: 'a b' }, signal))).message).toMatch(/is not a branch name/)
+    const controller = new AbortController()
+    controller.abort(new Error('client left'))
+    await expect(api.setMainBranch({ workspaceId: WORKSPACE, branch: 'main' }, controller.signal)).rejects.toThrow('client left')
   })
 
   it('propagates cancellation instead of wrapping it', async () => {

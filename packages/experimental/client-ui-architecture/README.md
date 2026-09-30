@@ -29,7 +29,9 @@ The [profile bundle](../architecture-profile/README.md) adds this row beside the
 
 The Architecture view lists each source with its git status; expanding a source lists its sections, and selecting a section opens its text. A section whose source is not committed offers Accept this content, which records the reviewed hash so Rulings may cite it. The Consultations view lists Rulings with their status, constraints, citations, unresolved points, and whether a cited section changed since issue. The Appeals view shows each appeal's reason and evidence; a pending appeal takes Uphold, Overturn, or Grant exception with a scope, plus an optional note. The Local entries view lists files under the local directory with their git status.
 
-A read failure keeps the last snapshot and shows the error above it. A failed acceptance, decision, or Session opening shows a notice beside its control.
+The Settings view has two groups. **This repository** picks the main branch from the branches or jj bookmarks the primary checkout is on, plus the declared one; Write rewrites the manifest's `mainBranch` at once through the service's edit rule, and the change takes effect for others once the user commits it. A manifest that declares no branch may name one the checkout is on; a declared branch changes only from that branch, and a refusal shows the rule under the control. **All repositories** stages the architect model and its reasoning effort from the Host model catalog, or Use the consulting session's model, and Save writes all three fields to the `architecture` entry of the profile. The same model field is the configuration page of the bundle's `architecture` row on the Plugins page.
+
+A read failure keeps the last snapshot and shows the error above it. A failed acceptance, decision, Session opening, branch write, or model save shows a notice beside its control.
 
 -----
 
@@ -39,7 +41,7 @@ A read failure keeps the last snapshot and shows the error above it. A failed ac
 <details>
 <summary>Maintainer details — click to expand</summary>
 
-`createDashboardSource` owns one reconnecting `follow` stream and replaces it when the Workspace changes. Discuss creates a Session in the Workspace, selects the `architect` preset through `remote.agentPresets.select`, and opens it; it does not seed a message. The page composes the shared Client primitives: `SegmentedTabs`, `DisclosureRow`, `Menu`, `SegmentedControl`, `PathLabel`, `Tag`, `Input`, `Button`, and `MarkdownText`; times use `relativeTime` in the Workspace sidebar's wording. Copy lives in the `architecture` locale namespace. No runtime invariant companion is published because the plugin holds only the Remote stream and its derived store.
+`createDashboardSource` owns one reconnecting `follow` stream and replaces it when the Workspace changes. Discuss creates a Session in the Workspace, selects the `architect` preset through `remote.agentPresets.select`, and opens it; it does not seed a message. `createArchitectModelForm` binds `ctx.configForms.get('architecture')` and `remote.session.modelCatalog`, stages one route at a time, and writes the provider, model, and effort in one `mutate` so a saved value always names one catalog route; the dashboard view and the `plugins.row.config` entry keyed `@deepseek-ai/dsh-experimental-architecture-profile#architecture` share it. Without the settings client, only the repository group renders. The page composes the shared Client primitives: `SegmentedTabs`, `DisclosureRow`, `Menu`, `SegmentedControl`, `PathLabel`, `Tag`, `Input`, `Button`, and `MarkdownText`, and uses native selects styled like the Models settings page's; times use `relativeTime` in the Workspace sidebar's wording. Copy lives in the `architecture` locale namespace. No runtime invariant companion is published because the plugin holds only the Remote stream, the settings form, and their derived stores.
 
 </details>
 

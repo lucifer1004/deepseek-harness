@@ -16,6 +16,7 @@
     { "path": "../../core/system-prompt" },
     { "path": "../../llm/llm" },
     { "path": "../../core/tools" },
+    { "path": "../../settings/settings" },
     { "path": "../../preset/agent-preset-registry" },
     { "path": "../../subprocess/subprocess" }
   ]

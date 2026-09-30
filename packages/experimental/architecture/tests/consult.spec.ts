@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -50,7 +51,13 @@ type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 interface Booted { ctx: Context; adapter: MockAdapter; worker: Agent; repo: string }
 
-async function boot(script: Script, config: Partial<Omit<Config, 'mainBranch'>> & { mainBranch?: string | null } = {}): Promise<Booted> {
+type BootConfig = Partial<Omit<Config, 'mainBranch' | 'architectProvider' | 'architectModel' | 'architectReasoningEffort'>> & {
+  mainBranch?: string | null
+  /** Raw architect model fields, which the schema turns into live references. */
+  architect?: { architectProvider: string; architectModel: string; architectReasoningEffort?: string }
+}
+
+async function boot(script: Script, config: BootConfig = {}): Promise<Booted> {
   const repo = await repository()
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
@@ -64,13 +71,14 @@ async function boot(script: Script, config: Partial<Omit<Config, 'mainBranch'>> 
   const tools = pathToFileURL(join(FIXTURES, 'plugins/preset-tools.js')).href
   await ctx.agentPresets.register({ id: 'coding', plugins: [{ name: tools, config: { tools: ['read', 'write'] } }] })
   await ctx.agentPresets.register({ id: 'architect', plugins: [{ name: tools, config: { tools: ['read', 'write', 'web_search'] } }] })
-  const { mainBranch = 'main', ...rest } = config
+  const { mainBranch = 'main', architect = {}, ...rest } = config
   // A null mainBranch boots the service without a default branch.
   await ctx.plugin(ArchitectureService, {
     ...(mainBranch === null ? {} : { mainBranch }),
     architectTools: ['read', 'web_search', 'not_installed'],
+    ...architect,
     ...rest,
-  } as Config)
+  })
   const adapter = new MockAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
   const handle = await ctx.agents.create({
@@ -122,6 +130,27 @@ describe('ArchitectureService.consult', () => {
     expect(JSON.stringify(request.messages)).toContain('Where does persistence go?\\n\\nScope: src/store')
     expect(ctx.agents.get(result.session)).toBeUndefined()
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('runs the architect on the configured model instead of the worker model', async () => {
+    const { ctx, adapter, worker } = await boot([], { architect: { architectProvider: 'arch', architectModel: 'big', architectReasoningEffort: 'high' } })
+    const architect = new MockAdapter([toolCallResponse('s1', SUBMIT_RULING_TOOL, submission)], {
+      efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
+    })
+    ctx.llm.registerAdapter(['arch'], architect)
+    const result = await ctx.architecture.consult({ worker, question: 'Q', scope: [], signal: new AbortController().signal })
+    expect(result.kind).toBe('ruling')
+    // submit_ruling concludes the architect's turn, so it makes one request.
+    expect(architect.requests.map(request => [request.provider, request.model, request.reasoningEffort])).toEqual([['arch', 'big', 'high']])
+    expect(adapter.requests).toEqual([])
+  })
+
+  it('keeps the architect model\'s default reasoning effort when none is configured', async () => {
+    const { ctx, worker } = await boot([], { architect: { architectProvider: 'arch', architectModel: 'big' } })
+    const architect = new MockAdapter([toolCallResponse('s1', SUBMIT_RULING_TOOL, submission)])
+    ctx.llm.registerAdapter(['arch'], architect)
+    await ctx.architecture.consult({ worker, question: 'Q', scope: [], signal: new AbortController().signal })
+    expect(architect.requests.map(request => [request.provider, request.model, request.reasoningEffort])).toEqual([['arch', 'big', undefined]])
   })
 
   it('binds only accepted sections when the repository declares no main branch', async () => {
@@ -188,7 +217,7 @@ describe('ArchitectureService.consult', () => {
     await bare.plugin((await import('@deepseek-ai/dsh-system-prompt')).default, {})
     await bare.plugin((await import('@deepseek-ai/dsh-tools')).default)
     await bare.plugin(LocalSubprocessRuntime)
-    await bare.plugin(ArchitectureService, { mainBranch: 'main' } as Config)
+    await bare.plugin(ArchitectureService, { mainBranch: 'main' })
     await expect(bare.architecture.consult({ worker, question: 'q', scope: [], signal: new AbortController().signal })).rejects.toThrow(/requires the agent registry/)
   })
 

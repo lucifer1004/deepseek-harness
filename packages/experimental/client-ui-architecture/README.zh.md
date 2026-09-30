@@ -29,7 +29,9 @@ kind: "package-reference"
 
 “架构”视图列出每个来源及其 git 状态；展开来源会列出其章节，选择章节会打开其文本。来源未提交的章节提供“接受此内容”，记录审阅时的哈希，使裁定可以引用它。“咨询”视图列出裁定及其状态、约束、引用、未决点，以及引用章节在发布后是否变化。“申诉”视图展示每个申诉的理由和证据；待处理的申诉可以维持、推翻或按范围授予豁免，并可附加说明。“本地条目”视图列出本地目录下的文件及其 git 状态。
 
-读取失败时保留上一个快照，并在其上方显示错误。接受、裁决或开启 Session 失败时，在对应控件旁显示提示。
+“设置”视图分两组。**本仓库**从主 checkout 当前所在的分支或 jj 书签以及已声明的分支中选择主分支；“写入”立即通过服务的编辑规则改写 manifest 的 `mainBranch`，用户提交后才对其他人生效。未声明分支的 manifest 可以声明 checkout 当前所在的分支；已声明的分支只能在该分支上更改，被拒绝时控件下方显示规则。**全局**从 Host 模型列表中暂存架构师模型及其推理强度，或选择“沿用工作会话的模型”，“保存”把三个字段写入 profile 的 `architecture` 条目。同一模型字段也是 Plugins 页面上该 bundle 的 `architecture` 行的配置页。
+
+读取失败时保留上一个快照，并在其上方显示错误。接受、裁决、开启 Session、写入分支或保存模型失败时，在对应控件旁显示提示。
 
 -----
 
@@ -39,7 +41,7 @@ kind: "package-reference"
 <details>
 <summary>维护者信息 — 点击展开</summary>
 
-`createDashboardSource` 持有一个可重连的 `follow` 流，并在工作区变化时替换它。“讨论架构”在工作区中创建 Session，通过 `remote.agentPresets.select` 选择 `architect` 预设并打开它；它不预填消息。页面由共享的 Client primitives 组成：`SegmentedTabs`、`DisclosureRow`、`Menu`、`SegmentedControl`、`PathLabel`、`Tag`、`Input`、`Button` 与 `MarkdownText`；时间通过 `relativeTime` 按工作区侧边栏的措辞显示。文案位于 `architecture` locale 命名空间。本包不发布 runtime invariant companion：插件只持有 Remote 流及其派生 store。
+`createDashboardSource` 持有一个可重连的 `follow` 流，并在工作区变化时替换它。“讨论架构”在工作区中创建 Session，通过 `remote.agentPresets.select` 选择 `architect` 预设并打开它；它不预填消息。`createArchitectModelForm` 绑定 `ctx.configForms.get('architecture')` 与 `remote.session.modelCatalog`，每次暂存一个路由，并在一次 `mutate` 中写入 provider、模型和推理强度，因此保存的值总是指向一个模型列表中的路由；仪表盘视图与键为 `@deepseek-ai/dsh-experimental-architecture-profile#architecture` 的 `plugins.row.config` 条目共用它。没有设置客户端时只渲染本仓库一组。页面由共享的 Client primitives 组成：`SegmentedTabs`、`DisclosureRow`、`Menu`、`SegmentedControl`、`PathLabel`、`Tag`、`Input`、`Button` 与 `MarkdownText`，并使用样式与 Models 设置页面一致的原生 select；时间通过 `relativeTime` 按工作区侧边栏的措辞显示。文案位于 `architecture` locale 命名空间。本包不发布 runtime invariant companion：插件只持有 Remote 流、设置表单及其派生 store。
 
 </details>
 

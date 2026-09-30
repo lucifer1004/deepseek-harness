@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -43,6 +43,8 @@ export interface ConsultationRun {
   readonly preset: string
   /** Tool names the architect agent keeps from its preset. */
   readonly tools: readonly string[]
+  /** Model the architect runs on; undefined runs it on the worker's model. */
+  readonly model: Pick<AgentOptions, 'provider' | 'model' | 'reasoningEffort'> | undefined
   /** Milliseconds to wait for a submission. */
   readonly timeoutMs: number
   /** Worker-side cancellation, such as the consulting tool call's signal. */
@@ -97,6 +99,12 @@ export function restrictToArchitectTools(agentCtx: Context, agent: Agent, tools:
   agentCtx.tools.restrict({ allow: tools.filter(name => visible.has(name) && !CONSULTATION_WITHHELD_TOOLS.includes(name)) })
 }
 
+/** The worker's options with its model route, including reasoning effort, replaced by `model`. */
+function withModel(options: AgentOptions, model: NonNullable<ConsultationRun['model']>): AgentOptions {
+  const { provider: _provider, model: _model, reasoningEffort: _effort, ...rest } = options
+  return { ...rest, ...model }
+}
+
 /**
  * Run one consultation to its outcome.
  * @param run - registries, worker, prompt, composition, and bounds.
@@ -118,7 +126,8 @@ export async function runConsultation(run: ConsultationRun): Promise<Consultatio
       origin: 'subagent',
       agentPreset: run.preset,
     },
-    agentOptions: { ...run.worker.options },
+    // A configured architect model replaces the worker's model route, including its reasoning effort.
+    agentOptions: run.model === undefined ? { ...run.worker.options } : withModel(run.worker.options, run.model),
     signal: run.signal,
     setup: async (agentCtx, agent) => {
       await run.presets.mount(agentCtx, run.preset)

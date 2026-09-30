@@ -8,11 +8,11 @@
 
 仓库的 `architecture.yml` 以 glob 列出 Markdown 来源，并可附带 `exclude` 列表。服务将每个来源的标题索引为章节。`IndexedSection` 携带路径、GitHub 风格锚点、标题、层级、行范围和内容哈希。`ArchitectureIndex` 包含主工作树中每个来源的全部章节，以及无法读取的来源的诊断信息。索引修订对每个章节的路径、锚点和哈希求哈希，因此索引内容一旦变化，修订就会变化。
 
-架构来源只能在主工作树中配置的主分支上修改。在 Jujutsu 仓库中（共置与否均可），主分支是一个书签，主 checkout 是持有仓库的 workspace，书签指向工作副本或其父提交时即视为在该分支上。`CheckoutState` 记录 checkout 的 `VcsKind`、根目录以及它是否为主 checkout。没有 manifest 的仓库可以写入第一份 manifest，只要它声明当前所在的分支。全局工具守卫拒绝其他所有写入者，包括会创建匹配来源 glob 之文件的写入者；架构师的 `architecture_edit` 工具检查同一规则，`ArchitectureEditRequest` 可以按架构师读取时的哈希替换一个章节。`EditRefusal` 指明被违反的条件。
+架构来源只能在主工作树中配置的主分支上修改。在 Jujutsu 仓库中（共置与否均可），主分支是一个书签，主 checkout 是持有仓库的 workspace，书签指向工作副本或其父提交时即视为在该分支上。`CheckoutState` 记录 checkout 的 `VcsKind`、根目录以及它是否为主 checkout。没有 manifest 的仓库可以写入第一份 manifest，只要它声明当前所在的分支；未声明分支的 manifest 可以声明 checkout 当前所在的分支；已声明的分支只能在该分支上更改。全局工具守卫拒绝其他所有写入者，包括会创建匹配来源 glob 之文件的写入者；架构师的 `architecture_edit` 工具检查同一规则，`ArchitectureEditRequest` 可以按架构师读取时的哈希替换一个章节。`EditRefusal` 指明被违反的条件。
 
 ## 咨询与裁定
 
-工作 Agent 的 `ConsultRequest` 在其 Session 下以隐藏子 Agent 的形式运行架构师。架构师只能使用配置的工具，并且必须调用 `submit_ruling`。服务把提交内容转换为裁定（Ruling）：只有当约束的每条引用都指向当前内容已提交到主分支或已被用户接受的已索引章节时，该约束才具有约束力。其他约束连同原因成为未决点。`ConsultResult` 是附带索引修订的裁定、超时，或未提交即结束的运行。
+工作 Agent 的 `ConsultRequest` 在其 Session 下以隐藏子 Agent 的形式运行架构师，使用配置的架构师模型；未配置时使用工作 Agent 的模型。架构师只能使用配置的工具，并且必须调用 `submit_ruling`。服务把提交内容转换为裁定（Ruling）：只有当约束的每条引用都指向当前内容已提交到主分支或已被用户接受的已索引章节时，该约束才具有约束力。其他约束连同原因成为未决点。`ConsultResult` 是附带索引修订的裁定、超时，或未提交即结束的运行。
 
 工作 Agent 的工具结果提交后，工具包在 `.architecture/rulings/` 下写入 `RulingRecord`。记录复制裁定、两个 Session id、索引修订和状态。工作 Agent 的日志仍是其所收到内容的权威来源；记录只是仪表盘的副本。
 
@@ -24,7 +24,7 @@
 
 ## 仪表盘
 
-仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态及引用章节是否变化的裁定、带有裁决表单的申诉，以及本地目录下的文件及其 git 状态。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
+仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态及引用章节是否变化的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法按编辑规则声明仓库的主分支，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
 
 ## 提交与 CI 检查
 
@@ -185,6 +185,17 @@ async accept(cwd: string, path: string, anchor: string, hash: string): Promise<A
 async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>
 
 /**
+ * Declare the repository's main branch in its manifest. The write follows the edit rule: a repository that declares
+ * no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.
+ * @param cwd - any directory inside the repository.
+ * @param branch - the branch or jj bookmark to declare.
+ * @param signal - cancels jj queries.
+ * @returns the written manifest path, or the refusal.
+ * @throws {ManifestError} when the repository has no valid manifest or `branch` is not a branch name.
+ */
+async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult>
+
+/**
  * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
  * manifest: `content` written to the manifest path that declares the branch the checkout is on.
  * @param cwd - Session directory.
@@ -239,6 +250,15 @@ The `architecture` Remote namespace over `ctx.architecture`, addressed by Worksp
  * @returns the recorded acceptance.
  */
 @Remote async accept(request: ArchitectureAcceptRequest): Promise<Acceptance>
+
+/**
+ * Declare the repository's main branch in its manifest, under the main-branch edit rule.
+ * @param request - Workspace and branch.
+ * @param signal - Client cancellation.
+ * @returns the written manifest path.
+ * @throws `architecture/failed` naming the refusal when the rule is not met, or the manifest is missing or invalid.
+ */
+@Remote async setMainBranch(request: ArchitectureMainBranchRequest, signal: AbortSignal): Promise<{ readonly path: string }>
 
 /**
  * Decide a pending appeal and deliver the decision to the worker Session.

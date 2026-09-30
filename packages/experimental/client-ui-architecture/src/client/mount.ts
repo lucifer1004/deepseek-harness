@@ -1,4 +1,5 @@
 /** Source-safe lifecycle for the architecture Remote contribution and dashboard page. */
+import { createElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/remote'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -10,10 +11,16 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-experimental-api-architecture/remote'
+// Type-only: the ctx.configForms Context merge.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: the Plugins page's SlotMap merge (the 'plugins.row.config' entry).
+import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { ArchitecturePage, type ArchitecturePageInjected, type WorkspaceChoice } from './ArchitecturePage.tsx'
 import { ArchitectureIcon } from './ArchitectureIcon.tsx'
+import { ArchitectModelField } from './SettingsView.tsx'
+import { ARCHITECTURE_NS, createArchitectModelForm, type ArchitectModelSettings } from './architect-model.ts'
 import { createDashboardSource } from './dashboard-source.ts'
 import { en, NS, zh, type ArchitectureKey } from './locales.ts'
 
@@ -23,6 +30,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'architecture': ArchitectureKey
   }
 }
+
+/** The bundle that inserts the architecture rows, which the Plugins page keys row configuration by. */
+export const PROFILE_BUNDLE = '@deepseek-ai/dsh-experimental-architecture-profile'
 
 /** Agent preset an Architecture Session runs. */
 export const ARCHITECT_PRESET = 'architect'
@@ -67,6 +77,12 @@ function registerUi(ctx: Context): void {
   }
   ctx.effect(() => workspaces.subscribe(pickFirst), 'client-ui-architecture: default workspace')
   pickFirst()
+  // The profile group needs the settings client; without it the Settings view shows only this repository's group.
+  const configForms = ctx.get('configForms')
+  const architectModel = configForms === undefined
+    ? undefined
+    : createArchitectModelForm(configForms.get<ArchitectModelSettings>(ARCHITECTURE_NS), () => ctx.remote.session.modelCatalog())
+  if (architectModel !== undefined) ctx.effect(() => architectModel.dispose, 'client-ui-architecture: architect model form')
   const injected: ArchitecturePageInjected = {
     hooks: { architectureDashboard: dashboard.state, architectureWorkspaces: workspaces },
     selectWorkspace: (workspaceId) => { dashboard.select(workspaceId) },
@@ -95,6 +111,13 @@ function registerUi(ctx: Context): void {
       const result = await ctx.remote.architecture.adjudicate({ workspaceId, appealId, adjudication })
       return result.ok
     },
+    setMainBranch: async (workspaceId, branch) => {
+      const result = await ctx.remote.architecture.setMainBranch({ workspaceId, branch })
+      if (result.ok) return undefined
+      // The service's refusal names the rule; a transport failure has no message for the user.
+      return result.error.code === 'architecture/failed' ? result.error.details.reason : t('settings.mainBranch.unreachable')
+    },
+    architectModel,
   }
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
@@ -102,6 +125,16 @@ function registerUi(ctx: Context): void {
     locale: NS,
     inject: () => injected,
   }, ArchitecturePage))
+  if (architectModel !== undefined) {
+    // The same form on the Plugins page, under the bundle's `architecture` row.
+    ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+      name: 'plugins.row.config',
+      key: `${PROFILE_BUNDLE}#${ARCHITECTURE_NS}`,
+      locale: NS,
+    }, ({ view }: PluginConfigViewProps) => view === 'summary'
+      ? t('settings.architectModel.hint')
+      : createElement(ArchitectModelField, { form: architectModel, t })))
+  }
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,
@@ -119,7 +152,7 @@ function registerUi(ctx: Context): void {
  */
 export async function mountArchitecture(ctx: Context, contribution: TypertRemoteContribution): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(contribution)
-  const ui = ctx.inject(['remote.architecture', 'remote.agentPresets', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace'], registerUi)
+  const ui = ctx.inject(['remote.architecture', 'remote.agentPresets', 'remote.session', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace'], registerUi)
   try { await ui } catch (error) { await ui.dispose(); await disposeRemote(); throw error }
   return async () => { await ui.dispose(); await disposeRemote() }
 }

@@ -31,7 +31,9 @@ import type {
 } from '@deepseek-ai/dsh-experimental-api-architecture/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ArchitectureKey } from './locales.ts'
+import type { ArchitectModelForm } from './architect-model.ts'
 import type { DashboardState } from './dashboard-source.ts'
+import { SettingsView } from './SettingsView.tsx'
 import css from './ArchitecturePage.module.css'
 
 /** One Workspace the user may pick. */
@@ -56,13 +58,17 @@ export interface ArchitecturePageInjected {
   readonly accept: (workspaceId: WorkspaceId, section: ArchitectureSectionValue) => Promise<boolean>
   /** Decide one appeal; resolves false on failure. */
   readonly adjudicate: (workspaceId: WorkspaceId, appealId: AppealId, adjudication: Adjudication) => Promise<boolean>
+  /** Declare the main branch in the manifest; resolves to the failure message, or undefined once written. */
+  readonly setMainBranch: (workspaceId: WorkspaceId, branch: string) => Promise<string | undefined>
+  /** The profile's architect-model form; undefined when the client has no settings service. */
+  readonly architectModel: ArchitectModelForm | undefined
 }
 
 /** Props of the `main` panel. */
 export type ArchitecturePageProps = PropsRuntime<'main'> & InjectFace<ArchitecturePageInjected> & PropsLocale<'architecture'>
 
 type Translate = ArchitecturePageProps['t']
-type View = 'architecture' | 'consultations' | 'appeals' | 'local'
+type View = 'architecture' | 'consultations' | 'appeals' | 'local' | 'settings'
 
 const STATUS_TONE: Readonly<Record<GitFileStatus, TagTone>> = {
   committed: 'quiet',
@@ -105,6 +111,7 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
       panelId: 'architecture-panel',
     },
     { value: 'local', label: t('tab.local'), id: 'architecture-tab-local', panelId: 'architecture-panel' },
+    { value: 'settings', label: t('tab.settings'), id: 'architecture-tab-settings', panelId: 'architecture-panel' },
   ] as const
   return (
     <div className={css.page}>
@@ -149,6 +156,15 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
                             {view === 'consultations' && <RulingsView snapshot={snapshot} now={now} t={t} />}
                             {view === 'appeals' && <AppealsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
                             {view === 'local' && <LocalView snapshot={snapshot} t={t} />}
+                            {view === 'settings' && (
+                              <SettingsView
+                                workspaceId={workspaceId}
+                                snapshot={snapshot}
+                                setMainBranch={props.setMainBranch}
+                                architectModel={props.architectModel}
+                                t={t}
+                              />
+                            )}
                           </section>
                         </>
                       )}

@@ -10,8 +10,9 @@ import type { AppealId, ArchitectureSnapshot } from '@deepseek-ai/dsh-experiment
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import { createElement } from 'react'
-import { cleanup, render } from '@testing-library/react'
+import { createElement, type ReactNode } from 'react'
+import { cleanup, render, screen } from '@testing-library/react'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { apply as hostApply } from '../src/index.ts'
 import { ArchitecturePage, type ArchitecturePageInjected } from '../src/client/ArchitecturePage.tsx'
 import { ArchitectureIcon } from '../src/client/ArchitectureIcon.tsx'
@@ -102,7 +103,14 @@ describe('dashboard source', () => {
   })
 })
 
-async function fixture(options: { fail?: boolean; workspaces?: Array<{ workspaceId: WorkspaceId; title: string }> } = {}) {
+interface FixtureOptions {
+  readonly fail?: boolean
+  /** Provide the settings client, which the profile group of the Settings view needs. */
+  readonly settings?: boolean
+  readonly workspaces?: Array<{ workspaceId: WorkspaceId; title: string }>
+}
+
+async function fixture(options: FixtureOptions = {}) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   const unmount = vi.fn(async () => {})
@@ -120,8 +128,18 @@ async function fixture(options: { fail?: boolean; workspaces?: Array<{ workspace
     section: vi.fn(async () => ({ ok: true as const, value: { path: 'a.md', anchor: 'a', hash: 'h', text: 't' } })),
     accept: vi.fn(async () => ({ ok: true as const, value: {} })),
     adjudicate: vi.fn(async () => ({ ok: false as const, error: new Error('x') })),
+    setMainBranch: vi.fn(async (): Promise<unknown> => ({ ok: true as const, value: { path: 'architecture.yml' } })),
   }
   ctx.provide('remote.architecture', architecture)
+  const configForm = {
+    getSnapshot: () => ({ status: 'ready', value: {}, base: undefined, user: undefined, revision: 1, writable: true, mode: 'host' }),
+    subscribe: vi.fn(() => () => {}),
+    mutate: vi.fn(async () => true),
+  }
+  const configForms = { get: vi.fn(() => configForm) }
+  const modelCatalog = vi.fn(async () => ({ ok: false as const, error: new Error('down') }))
+  ctx.provide('remote.session', { modelCatalog })
+  if (options.settings === true) ctx.provide('configForms', configForms)
   const select = vi.fn(async () => ({ ok: true as const, value: ARCHITECT_PRESET }))
   ctx.provide('remote.agentPresets', { select })
   let items = options.workspaces ?? []
@@ -147,9 +165,10 @@ async function fixture(options: { fail?: boolean; workspaces?: Array<{ workspace
   ctx.slots.register({ name: 'root', children: {
     'main': { kind: 'keyed', scope: 'root' },
     'sidebar.panellist': { kind: 'list', scope: 'root' },
+    'plugins.row.config': { kind: 'keyed', scope: 'root' },
   } } as never, () => null)
   if (options.fail === true) vi.spyOn(ctx.slots, 'inject').mockImplementationOnce(() => { throw new Error('slot failed') })
-  return { ctx, unmount, architecture, select, create, openSession, setWorkspaces, listeners }
+  return { ctx, unmount, architecture, select, create, openSession, setWorkspaces, listeners, configForms, modelCatalog }
 }
 
 /** Narrow the erased registry payload before exercising its registered actions. */
@@ -157,7 +176,7 @@ function assertDashboardActions(
   value: Record<string, unknown> | undefined,
 ): asserts value is Record<string, unknown> & ArchitecturePageInjected {
   assert(value !== undefined)
-  for (const name of ['selectWorkspace', 'discuss', 'readSection', 'accept', 'adjudicate']) assert(typeof value[name] === 'function')
+  for (const name of ['selectWorkspace', 'discuss', 'readSection', 'accept', 'adjudicate', 'setMainBranch']) assert(typeof value[name] === 'function')
   assert(typeof value.hooks === 'object' && value.hooks !== null)
 }
 
@@ -215,6 +234,37 @@ describe('mountArchitecture', () => {
     expect(b.ctx.slots.entries('sidebar.panellist')).toHaveLength(0)
     expect(b.listeners.size).toBe(0)
     expect(b.unmount).toHaveBeenCalledOnce()
+  })
+
+  it('declares the main branch and shares the architect-model form with the Plugins page', async () => {
+    const b = await fixture({ settings: true })
+    const fiber = b.ctx.plugin({ inject: [...inject], apply: ctx => mountArchitecture(ctx, REMOTE) })
+    await fiber
+    const actions = injected(b.ctx)
+    expect(await actions.setMainBranch(WS, 'main')).toBeUndefined()
+    expect(b.architecture.setMainBranch).toHaveBeenCalledWith({ workspaceId: WS, branch: 'main' })
+    b.architecture.setMainBranch.mockResolvedValueOnce({
+      ok: false, error: new RemoteError('architecture/failed', 'refused', { reason: 'the checkout is on dev' }),
+    })
+    expect(await actions.setMainBranch(WS, 'main')).toBe('the checkout is on dev')
+    b.architecture.setMainBranch.mockResolvedValueOnce({ ok: false, error: new RemoteError('remote/unreachable' as never, 'down', {} as never) })
+    expect(await actions.setMainBranch(WS, 'main')).toBe('the server could not be reached.')
+
+    expect(b.configForms.get).toHaveBeenCalledWith('architecture')
+    const form = actions.architectModel
+    assert(form !== undefined)
+    form.load()
+    expect(b.modelCatalog).toHaveBeenCalledOnce()
+    const [row] = b.ctx.slots.entries('plugins.row.config')
+    expect(row?.options.key).toBe('@deepseek-ai/dsh-experimental-architecture-profile#architecture')
+    const Row = row?.component as (props: { view: 'summary' | 'page' }) => ReactNode
+    expect(Row({ view: 'summary' })).toBe('The model a consultation\'s architect runs on. Unset, it runs on the consulting session\'s model.')
+    render(createElement(() => Row({ view: 'page' })))
+    expect(screen.getByLabelText('Architect model')).toBeTruthy()
+    cleanup()
+
+    await fiber.dispose()
+    expect(b.ctx.slots.entries('plugins.row.config')).toHaveLength(0)
   })
 
   it('follows the first Workspace once one exists', async () => {
