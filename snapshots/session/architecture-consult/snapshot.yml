@@ -1,0 +1,13 @@
+version: 1
+scenario: architecture-consult
+profile: headless
+composition: architecture-consult
+recording: authored
+header:
+  class: architecture-consult
+  pin: true
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+platform: posix
+workspace:
+  setup: git-main

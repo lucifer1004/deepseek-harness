@@ -73,6 +73,8 @@ export function redactSessionSnapshotIds(logs: readonly string[]): string[] {
     if (typeof value === 'string') {
       for (const match of value.matchAll(/\bas message ([0-9a-f-]{36})\b/gi)) claim(match[1], 'message')
       for (const match of value.matchAll(/\bAnonymous user: ([0-9a-f-]{36})\b/gi)) claim(match[1], 'id')
+      // A prefixed random id quoted in prose, such as `ruling-<uuid>` in a tool result.
+      for (const match of value.matchAll(/\b[a-z]+(?:-[a-z]+)*-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi)) claim(match[0], 'id')
       return
     }
     if (Array.isArray(value)) {

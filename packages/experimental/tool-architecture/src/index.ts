@@ -36,6 +36,9 @@ const CITATION_SCHEMA = {
   },
 } as const
 
+/** Worker tool that asks the architect; its visibility also gates the worker guidance. */
+const CONSULT_ARCHITECT_TOOL = 'consult_architect'
+
 /** Canonical `consult_architect` value. */
 const CONSULT_OUTPUT = {
   type: 'object',
@@ -151,10 +154,11 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'tool:consult-architect',
     order: ctx.systemPrompt.getSectionOrder('TOOL_SUBAGENT'),
-    text: WORKER_POLICY,
+    // An agent whose tools hide consult_architect (an architect, a consultation) gets no worker guidance.
+    text: context => ctx.tools.get(CONSULT_ARCHITECT_TOOL, context.scope) === undefined ? '' : WORKER_POLICY,
   }), 'architecture: worker guidance')
   ctx.effect(() => ctx.tools.register(defineTool({
-    name: 'consult_architect',
+    name: CONSULT_ARCHITECT_TOOL,
     description: 'Ask the architecture agent a design question about this workspace. Returns a Ruling: binding constraints that cite committed architecture sections, and unresolved points that do not bind. The call can take minutes.',
     parameters: {
       question: { type: 'string', required: true, description: 'The concrete design question, including the change you intend.' },

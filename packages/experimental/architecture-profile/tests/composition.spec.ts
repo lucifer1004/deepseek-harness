@@ -166,6 +166,8 @@ describe('architecture profile bundle composition', () => {
     // The architect sees only tools the guard lets it run: no worker tools, no generic writes.
     for (const tool of ['consult_architect', 'appeal_ruling', 'write', 'edit', 'bash']) expect(architectTools).not.toContain(tool)
     expect(JSON.stringify(adapter.requests[0]?.messages[0])).toContain('You are the architecture agent for this workspace, powered by the mock model.')
+    // Worker guidance follows consult_architect's visibility: the architect sees neither.
+    expect(JSON.stringify(adapter.requests[0]?.messages[0])).not.toContain('call `consult_architect`')
     const readResult = JSON.stringify(adapter.requests[1]?.messages.at(-1))
     expect(readResult).toContain('# Architecture')
     expect(readResult).not.toContain('unavailable to the architect')
@@ -176,6 +178,7 @@ describe('architecture profile bundle composition', () => {
     expect(adapter.requests[2]?.tools?.map(tool => tool.name)).toContain('consult_architect')
     expect(adapter.requests[2]?.tools?.map(tool => tool.name)).not.toContain('architecture_edit')
     expect(adapter.requests[2]?.tools?.map(tool => tool.name)).toContain('appeal_ruling')
+    expect(JSON.stringify(adapter.requests[2]?.messages[0])).toContain('call `consult_architect`')
 
     // A consultation's architect child reaches the model with the architect's read tools, not only submit_ruling.
     const consultation = new MockAdapter([textResponse('no ruling')])

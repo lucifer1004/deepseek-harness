@@ -498,6 +498,24 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       writeFile(join(dir, 'task.txt'), 'delimiter path snapshot task\n'),
     ])
   },
+  async 'git-main'(cwd) {
+    // Commit the seeded files on `main` with a fixed identity and date, so the commit and its hashes are stable.
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'snapshot',
+      GIT_AUTHOR_EMAIL: 'snapshot@example.com',
+      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+      GIT_COMMITTER_NAME: 'snapshot',
+      GIT_COMMITTER_EMAIL: 'snapshot@example.com',
+      GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+    }
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '--no-gpg-sign', '-m', 'seed']]) {
+      const result = spawnSync('git', args, { cwd, env, encoding: 'utf8' })
+      if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`)
+    }
+  },
   async 'fixed-search-mtimes'(cwd) {
     const tree = join(cwd, 'tree')
     const files = [

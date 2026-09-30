@@ -84,7 +84,7 @@ describe('session snapshot identity redaction', () => {
           rpcId: 'rpc-9',
           retryId,
           requestId: 'stable-readable-id',
-          text: `Retain this as message ${semanticMessage}. Anonymous user: ${anonymousUser}`,
+          text: `Retain this as message ${semanticMessage}. Anonymous user: ${anonymousUser}. Ruling ruling-${anonymousUser.replace(/^./, 'b')} binds.`,
         },
       }),
     ].join('\n')
@@ -95,6 +95,7 @@ describe('session snapshot identity redaction', () => {
     expect(redacted).toContain('"retryId":"{{retry:1}}"')
     expect(redacted).toContain('as message {{message:1}}')
     expect(redacted).toContain('Anonymous user: {{id:1}}')
+    expect(redacted).toContain('Ruling {{id:2}} binds.')
     expect(redacted).toContain('"requestId":"stable-readable-id"')
     expect(redacted?.endsWith('\n')).toBe(false)
   })
