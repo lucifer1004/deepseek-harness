@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { DEFAULT_ARCHITECT_TOOLS } from '@deepseek-ai/dsh-experimental-architecture'
 
 interface Entry {
   id?: string
@@ -42,13 +43,14 @@ describe('architecture profile bundle', () => {
     const entries = inserted()
     const service = entries.find(entry => entry.id === 'architecture')
     expect(service?.name).toBe('@deepseek-ai/dsh-experimental-architecture')
-    expect(service?.config).not.toHaveProperty('mainBranch')
+    // A profile patch replaces the whole row config, so the row leaves every field to the service defaults.
+    expect(service?.config).toBeUndefined()
     expect(entries.find(entry => entry.id === 'tool-architecture')?.name).toBe('@deepseek-ai/dsh-experimental-tool-architecture')
   })
 
   it('gives the architect preset exactly the tools the service allows it', () => {
     const entries = inserted()
-    const allowed = new Set(entries.find(entry => entry.id === 'architecture')?.config?.architectTools)
+    const allowed = new Set(DEFAULT_ARCHITECT_TOOLS)
     const preset = entries.find(entry => entry.id === 'preset-architect')
     expect(preset?.config?.id).toBe('architect')
     const rows = (preset?.config?.plugins ?? []).map(entry => entry.name)

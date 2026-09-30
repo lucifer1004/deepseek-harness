@@ -79,17 +79,22 @@ const SUBMISSION_PARAMETERS = {
 } as const
 
 /**
- * Keep only the configured architect tools among the tools an agent inherits.
- * Configured names the composition does not provide are skipped, because
- * `tools.restrict()` rejects unknown names and tool plugins may be disabled in
- * one composition.
+ * Architect tools a consultation withholds. The user takes no part in a consultation, and the record changes only
+ * after the user agrees in an Architecture Session, so the architect neither edits the record nor asks the user.
+ */
+export const CONSULTATION_WITHHELD_TOOLS: readonly string[] = ['architecture_edit', 'ask_user_question']
+
+/**
+ * Keep only the configured architect tools among the tools an agent inherits, minus the tools a consultation
+ * withholds. Configured names the composition does not provide are skipped, because `tools.restrict()` rejects
+ * unknown names and tool plugins may be disabled in one composition.
  * @param agentCtx - the agent's scoped context, after its preset is mounted.
  * @param agent - the agent being created; its scope key.
  * @param tools - configured architect tool names.
  */
 export function restrictToArchitectTools(agentCtx: Context, agent: Agent, tools: readonly string[]): void {
   const visible = new Set(agentCtx.tools.schemas(agent).map(schema => schema.name))
-  agentCtx.tools.restrict({ allow: tools.filter(name => visible.has(name)) })
+  agentCtx.tools.restrict({ allow: tools.filter(name => visible.has(name) && !CONSULTATION_WITHHELD_TOOLS.includes(name)) })
 }
 
 /**

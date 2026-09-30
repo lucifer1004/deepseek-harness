@@ -160,6 +160,20 @@ describe('architect tools', () => {
     expect(await call(ctx, architect, 'read', { file_path: 'src/x.ts' })).toEqual({ text: 'ran:read', isError: false })
   })
 
+  it('shows an architect only the tools it may run, following a preset switch before the first turn', async () => {
+    const { ctx, repo } = await boot([])
+    const names = (target: Agent): string[] => ctx.tools.schemas(target).map(schema => schema.name)
+    const architect = await agent(ctx, repo, 'architect-session', 'architect')
+    expect(names(architect)).toContain('read')
+    for (const tool of ['write', 'consult_architect', 'appeal_ruling']) expect(names(architect)).not.toContain(tool)
+    const switched = await agent(ctx, repo, 'switched-session', 'coding')
+    expect(names(switched)).toContain('write')
+    await ctx.agentPresets.select(switched, 'architect')
+    expect(names(switched)).not.toContain('write')
+    await ctx.agentPresets.select(switched, 'coding')
+    expect(names(switched)).toContain('write')
+  })
+
   it('rejects calls from a Session without a working directory', async () => {
     const { ctx } = await boot([])
     const handle = await ctx.agents.create({

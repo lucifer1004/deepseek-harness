@@ -41,7 +41,7 @@ import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import WebRuntime from '@deepseek-ai/dsh-web'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 const PATCH = fileURLToPath(new URL('../cordis.patch.yml', import.meta.url))
 let root: string | undefined
@@ -144,7 +144,12 @@ describe('architecture profile bundle composition', () => {
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
 
-    const adapter = new MockAdapter([textResponse('architect idle'), textResponse('worker idle')])
+    // The architect's first step reads a file; the guard must let an allowed tool run.
+    const adapter = new MockAdapter([
+      toolCallResponse('read-1', 'read', { file_path: join(repo, 'design', 'architecture.md') }),
+      textResponse('architect idle'),
+      textResponse('worker idle'),
+    ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const architect = await ctx.agents.create({
       sessionId: SessionId('architect-session'),
@@ -155,17 +160,31 @@ describe('architecture profile bundle composition', () => {
     architect.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
     await architect.agent.whenIdle()
     const architectTools = adapter.requests[0]?.tools?.map(tool => tool.name) ?? []
-    for (const tool of ['read', 'glob', 'grep', 'web_search', 'web_fetch', 'session_search', 'ask_user_question', 'todo_write', 'architecture_index', 'architecture_read', 'architecture_edit', 'consult_architect']) {
+    for (const tool of ['read', 'glob', 'grep', 'web_search', 'web_fetch', 'session_search', 'ask_user_question', 'todo_write', 'architecture_index', 'architecture_read', 'architecture_edit']) {
       expect(architectTools).toContain(tool)
     }
+    // The architect sees only tools the guard lets it run: no worker tools, no generic writes.
+    for (const tool of ['consult_architect', 'appeal_ruling', 'write', 'edit', 'bash']) expect(architectTools).not.toContain(tool)
     expect(JSON.stringify(adapter.requests[0]?.messages[0])).toContain('You are the architecture agent for this workspace, powered by the mock model.')
+    const readResult = JSON.stringify(adapter.requests[1]?.messages.at(-1))
+    expect(readResult).toContain('# Architecture')
+    expect(readResult).not.toContain('unavailable to the architect')
 
     const worker = await ctx.agents.create({ sessionId: SessionId('worker'), meta: { cwd: repo }, agentOptions: { provider: 'mock', model: 'mock' } })
     worker.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
     await worker.agent.whenIdle()
-    expect(adapter.requests[1]?.tools?.map(tool => tool.name)).toContain('consult_architect')
-    expect(adapter.requests[1]?.tools?.map(tool => tool.name)).not.toContain('architecture_edit')
-    expect(adapter.requests[1]?.tools?.map(tool => tool.name)).toContain('appeal_ruling')
+    expect(adapter.requests[2]?.tools?.map(tool => tool.name)).toContain('consult_architect')
+    expect(adapter.requests[2]?.tools?.map(tool => tool.name)).not.toContain('architecture_edit')
+    expect(adapter.requests[2]?.tools?.map(tool => tool.name)).toContain('appeal_ruling')
+
+    // A consultation's architect child reaches the model with the architect's read tools, not only submit_ruling.
+    const consultation = new MockAdapter([textResponse('no ruling')])
+    ctx.llm.registerAdapter(['consult'], consultation)
+    const consulting = await ctx.agents.create({ sessionId: SessionId('consulting'), meta: { cwd: repo }, agentOptions: { provider: 'consult', model: 'consult' } })
+    await ctx.architecture.consult({ worker: consulting.agent, question: 'Where does storage go?', scope: [], signal: new AbortController().signal })
+    const consultTools = consultation.requests[0]?.tools?.map(tool => tool.name) ?? []
+    for (const tool of ['read', 'glob', 'grep', 'architecture_index', 'architecture_read', 'submit_ruling']) expect(consultTools).toContain(tool)
+    for (const tool of ['architecture_edit', 'ask_user_question', 'write', 'bash']) expect(consultTools).not.toContain(tool)
 
     // The dashboard Remote reads the Workspace's repository through the composed service.
     const snapshot = await ctx.architectureController.snapshot(WORKSPACE, new AbortController().signal)

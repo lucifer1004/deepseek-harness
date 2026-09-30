@@ -12,6 +12,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:p
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { scopeParentOf } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -53,7 +54,7 @@ export type * from './types.ts'
 export { ManifestError } from './manifest.ts'
 export { githubSlug, hashSection, indexSections, sectionText } from './sections.ts'
 export { describeCitationFailure, parseCite } from './citations.ts'
-export { CONSULTATION_INSTRUCTION, restrictToArchitectTools, SUBMIT_RULING_TOOL } from './consultation.ts'
+export { CONSULTATION_INSTRUCTION, CONSULTATION_WITHHELD_TOOLS, restrictToArchitectTools, SUBMIT_RULING_TOOL } from './consultation.ts'
 export { ACCEPTANCES_FILE, APPEALS_DIRECTORY, RULINGS_DIRECTORY } from './records.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -183,6 +184,28 @@ export function describeRefusal(refusal: EditRefusal): string {
   }
 }
 
+/**
+ * Tools an Architect agent may run in the `architect` preset: repository read and search, web references,
+ * Session query, the architecture tools, and the user-dialogue tools. It holds no generic write or execution tool.
+ */
+export const DEFAULT_ARCHITECT_TOOLS: readonly string[] = [
+  'read',
+  'glob',
+  'grep',
+  'web_search',
+  'web_fetch',
+  'session_search',
+  'session_event_search',
+  'session_trace',
+  'session_event_trace',
+  'session_event_read',
+  'architecture_index',
+  'architecture_read',
+  'architecture_edit',
+  'ask_user_question',
+  'todo_write',
+]
+
 /** Workspace architecture sources, index, and edit rule. */
 export class ArchitectureService extends Service {
   static inject = ['subprocess', 'tools']
@@ -192,7 +215,8 @@ export class ArchitectureService extends Service {
     manifestPath: z.string().default('architecture.yml').description('Workspace-relative path of the architecture manifest.'),
     localDirectory: z.string().default('.architecture').description('Workspace-relative directory holding local architecture entries.'),
     architectPreset: z.string().default('architect').description('Agent preset whose agents may run only `architectTools`.'),
-    architectTools: z.array(z.string()).default([]).description('Tool names an agent composed with `architectPreset` may run; every other call is denied.'),
+    architectTools: z.array(z.string()).default([...DEFAULT_ARCHITECT_TOOLS])
+      .description('Tool names an agent composed with `architectPreset` may run; every other call is denied.'),
     gitTimeoutMs: z.natural().min(1).default(10_000).description('Milliseconds a git command may run before it is terminated.'),
     maxSourceBytes: z.natural().min(1).default(1_048_576).description('Byte cap on one manifest source read while indexing.'),
     consultTimeoutMs: z.natural().min(1).default(300_000).description('Milliseconds a consultation waits for the architect to submit a Ruling.'),
@@ -204,6 +228,8 @@ export class ArchitectureService extends Service {
   private readonly revisions = new Map<string, string>()
   /** Serializes read-modify-write of each repository's records. */
   private readonly writes = new Map<string, Promise<unknown>>()
+  /** Lifts the tool mask of each agent currently composed with the architect preset. */
+  private readonly masks = new WeakMap<Agent, () => void>()
   private files: GitFiles | undefined
 
   constructor(ctx: Context, config: Config) {
@@ -220,10 +246,18 @@ export class ArchitectureService extends Service {
     ctx.effect(() => ctx.tools.guard(exec => this.guardReason(exec)), 'architecture: edit-rule tool guard')
     // A decision made while the worker's agent was not live reaches it when the agent is next created.
     ctx.on('agent/created', ({ agent }) => {
+      this.maskArchitect(agent)
       void this.deliverPending(agent).catch((error: unknown) => {
         ctx.logger.warn(`architecture: delivering appeal decisions to ${agent.id} failed: ${String(error)}`)
       })
       return undefined
+    })
+    // A blank Session may switch presets before its first turn.
+    // The event fires from the selecting agent's own Session log, so that agent is live.
+    ctx.on('agent-preset/selected', (sessionId) => {
+      const agent = ctx.get('agents')?.get(sessionId)
+      /* v8 ignore next -- the selecting agent is live while its Session appends the selection. */
+      if (agent !== undefined) this.maskArchitect(agent)
     })
   }
 
@@ -686,6 +720,23 @@ export class ArchitectureService extends Service {
     // Every protected path lies inside `from`, so its relative spelling never escapes.
     const move = (path: string): string => join(to, relative(from, path))
     return { root: to, files: new Set([...paths.files].map(move)), localDirectory: move(paths.localDirectory) }
+  }
+
+  /**
+   * Show an architect only the tools the guard lets it run, so its tool list and its permissions agree. The mask is
+   * an agent-scope allow list: it also hides tools registered after it, and lifts when the agent leaves the preset.
+   * @param agent - an agent just created or just recomposed.
+   */
+  private maskArchitect(agent: Agent): void {
+    this.masks.get(agent)?.()
+    this.masks.delete(agent)
+    if (this.ctx.get('agentPresets')?.composedPreset(agent.ctx) !== this.config.architectPreset) return
+    // A restriction names only tools the agent inherits from its preset scope; the agent's own registrations, such
+    // as a consultation's `submit_ruling`, stay visible without it. A bound preset is always the agent's scope parent.
+    const inherited = new Set(agent.ctx.tools.schemas(scopeParentOf(agent)).map(schema => schema.name))
+    const allow = [...this.architectTools].filter(name => inherited.has(name))
+    const lift = agent.ctx.effect(() => agent.ctx.tools.restrict({ allow }), 'architecture: architect tool mask')
+    this.masks.set(agent, () => { void lift() })
   }
 
   private guardReason(exec: Readonly<ToolExecution>): string | undefined {

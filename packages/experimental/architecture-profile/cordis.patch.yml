@@ -3,32 +3,14 @@
 # tool are host rows, the dashboard is a Remote row plus a browser UI row, and
 # the architect preset mounts its own read, search, web, and architecture tools.
 # Set `mainBranch` on the `architecture` row in the profile patch; the service
-# fails to load without it.
+# fails to load without it. The row carries no config of its own: a profile
+# patch replaces a row's whole `config`, so any value here would be dropped as
+# soon as the profile sets `mainBranch`. The architect's tool list is the
+# service default.
 
 - insert:
     - id: architecture
       name: '@deepseek-ai/dsh-experimental-architecture'
-      config:
-        manifestPath: architecture.yml
-        localDirectory: .architecture
-        architectPreset: architect
-        architectTools:
-          - read
-          - glob
-          - grep
-          - web_search
-          - web_fetch
-          - session_search
-          - session_event_search
-          - session_trace
-          - session_event_trace
-          - session_event_read
-          - architecture_index
-          - architecture_read
-          - architecture_edit
-          - ask_user_question
-          - todo_write
-        consultTimeoutMs: 300000
 
     - id: tool-architecture
       name: '@deepseek-ai/dsh-experimental-tool-architecture'
