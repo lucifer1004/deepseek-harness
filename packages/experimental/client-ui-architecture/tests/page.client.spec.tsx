@@ -57,7 +57,7 @@ function snapshot(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSn
       workerSession: 'worker' as never,
       architectSession: 'architect' as never,
       revision: 'r',
-      issuedAt: 0,
+      issuedAt: Date.now(),
       status: 'issued',
       stale: false,
     }],
@@ -98,6 +98,11 @@ function snapshot(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSn
   }
 }
 
+/** Expand one source's disclosure row so its sections are listed. */
+function expand(path: string): void {
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }))
+}
+
 function fixture(state: Partial<DashboardState> = {}, choices: readonly WorkspaceChoice[] = [{ workspaceId: WS, title: 'repo' }]) {
   const dashboard = createSnapshotStore<DashboardState>({ workspaceId: WS, snapshot: snapshot(), error: null, ...state })
   const workspaces = createSnapshotStore<readonly WorkspaceChoice[]>(choices)
@@ -128,6 +133,8 @@ describe('ArchitecturePage', () => {
     expect(screen.getByText('1 个记录文件无法读取')).toBeTruthy()
     expect(screen.getByText('1 个来源无法索引')).toBeTruthy()
     expect(screen.getByText('未跟踪')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '查看 design/arch.md#storage' })).toBeNull()
+    expand('design/arch.md')
     fireEvent.click(screen.getByRole('button', { name: '查看 design/arch.md#storage' }))
     expect(await screen.findByText('Body of storage.')).toBeTruthy()
     expect(props.readSection).toHaveBeenCalledWith(WS, 'design/arch.md', 'storage')
@@ -135,10 +142,13 @@ describe('ArchitecturePage', () => {
     expect(screen.queryByRole('button', { name: zh['section.accept'] })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: zh['section.close'] }))
     expect(screen.queryByText('Body of storage.')).toBeNull()
+    expand('design/arch.md')
+    expect(screen.queryByRole('button', { name: '查看 design/arch.md#storage' })).toBeNull()
   })
 
   it('accepts an uncommitted section and reports a failed acceptance', async () => {
     const { props, dashboard } = fixture()
+    expand('design/new.md')
     fireEvent.click(screen.getByRole('button', { name: '查看 design/new.md#draft' }))
     fireEvent.click(await screen.findByRole('button', { name: zh['section.accept'] }))
     await waitFor(() => { expect(props.accept).toHaveBeenCalledWith(WS, expect.objectContaining({ path: 'design/new.md', hash: OTHER })) })
@@ -156,6 +166,7 @@ describe('ArchitecturePage', () => {
     const late = Promise.withResolvers<undefined>()
     props.readSection.mockReturnValueOnce(late.promise)
     props.readSection.mockResolvedValueOnce(undefined)
+    expand('design/arch.md')
     fireEvent.click(screen.getByRole('button', { name: '查看 design/arch.md#arch' }))
     fireEvent.click(screen.getByRole('button', { name: '查看 design/arch.md#storage' }))
     expect(await screen.findByText(zh['section.failed'])).toBeTruthy()
@@ -173,6 +184,9 @@ describe('ArchitecturePage', () => {
     expect(screen.getByText('design/arch.md#storage')).toBeTruthy()
     expect(screen.getByText('no citation to an architecture section')).toBeTruthy()
     expect(screen.getByText(zh['ruling.noConstraints'])).toBeTruthy()
+    // Times use the sidebar's relative form: an old Ruling in years ago, a fresh one as now.
+    expect(screen.getByText(/ruling-1 · \d+年前 · 会话/)).toBeTruthy()
+    expect(screen.getByText(/ruling-2 · 刚刚 · 会话/)).toBeTruthy()
   })
 
   it('decides a pending appeal and shows decided appeals', async () => {
@@ -188,7 +202,8 @@ describe('ArchitecturePage', () => {
     const card = within(pending)
     card.getByText('src/stream.ts')
 
-    fireEvent.click(card.getByLabelText(zh['appeal.exception']))
+    expect(card.getByRole('tablist', { name: zh['appeal.decision'] })).toBeTruthy()
+    fireEvent.click(card.getByRole('tab', { name: zh['appeal.exception'] }))
     const submit = card.getByRole('button', { name: zh['appeal.submit'] })
     expect(submit).toHaveProperty('disabled', true)
     fireEvent.change(card.getByLabelText(zh['appeal.exceptionScope']), { target: { value: ' src/stream.ts ' } })
@@ -199,12 +214,12 @@ describe('ArchitecturePage', () => {
     })
 
     props.adjudicate.mockResolvedValueOnce(false)
-    fireEvent.click(card.getByLabelText(zh['appeal.overturn']))
+    fireEvent.click(card.getByRole('tab', { name: zh['appeal.overturn'] }))
     fireEvent.change(card.getByLabelText(zh['appeal.note']), { target: { value: '' } })
     fireEvent.click(submit)
     expect(await card.findByText(zh['appeal.failed'])).toBeTruthy()
     expect(props.adjudicate).toHaveBeenLastCalledWith(WS, 'appeal-1', { kind: 'overturn' })
-    fireEvent.click(card.getByLabelText(zh['appeal.uphold']))
+    fireEvent.click(card.getByRole('tab', { name: zh['appeal.uphold'] }))
     fireEvent.click(submit)
     await waitFor(() => { expect(props.adjudicate).toHaveBeenLastCalledWith(WS, 'appeal-1', { kind: 'uphold' }) })
   })
@@ -212,7 +227,7 @@ describe('ArchitecturePage', () => {
   it('lists local entries with their git status, and the empty views', async () => {
     const { dashboard } = fixture()
     tab(zh['tab.local'])
-    expect(screen.getByText('.architecture/notes.md')).toBeTruthy()
+    expect(screen.getByTitle('.architecture/notes.md')).toBeTruthy()
     expect(screen.getByText(zh['status.ignored'])).toBeTruthy()
     const emptied = snapshot({ localEntries: [], rulings: [], appeals: [], problems: [], hasManifest: false })
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: emptied })
@@ -238,18 +253,29 @@ describe('ArchitecturePage', () => {
   it('switches Workspace and shows loading, error, unselected, and no-Workspace states', async () => {
     const { props, dashboard } = fixture({ snapshot: null }, [{ workspaceId: WS, title: 'repo' }, { workspaceId: 'ws-2' as WorkspaceId, title: 'other' }])
     expect(screen.getByRole('status', { name: zh['section.loading'] })).toBeTruthy()
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ws-2' } })
+    fireEvent.click(screen.getByRole('button', { name: zh['workspace.label'] }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'other' }))
     expect(props.selectWorkspace).toHaveBeenCalledWith('ws-2')
+    expect(screen.queryByRole('menuitem', { name: 'other' })).toBeNull()
+    // Escape closes the menu without choosing.
+    fireEvent.click(screen.getByRole('button', { name: zh['workspace.label'] }))
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'other' }), { key: 'Escape' })
+    await waitFor(() => { expect(screen.queryByRole('menuitem', { name: 'other' })).toBeNull() })
+    expect(props.selectWorkspace).toHaveBeenCalledTimes(1)
     dashboard.set({ workspaceId: WS, snapshot: null, error: 'offline' })
     expect(await screen.findByText('无法读取架构状态：offline')).toBeTruthy()
     expect(screen.queryByRole('status')).toBeNull()
     dashboard.set({ workspaceId: null, snapshot: null, error: null })
-    await waitFor(() => { expect(screen.getAllByText(zh['workspace.none'])).toHaveLength(2) })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '' } })
+    await waitFor(() => { expect(screen.getByText(zh['workspace.none'])).toBeTruthy() })
+    expect(screen.getByRole('button', { name: zh['workspace.label'] }).textContent).toBe(zh['workspace.choose'])
+    fireEvent.click(screen.getByRole('button', { name: zh['workspace.label'] }))
+    fireEvent.click(screen.getByRole('button', { name: zh['workspace.label'] }))
+    expect(screen.queryByRole('menuitem', { name: 'other' })).toBeNull()
     expect(screen.queryByRole('button', { name: zh.discuss })).toBeNull()
     expect(props.selectWorkspace).toHaveBeenCalledTimes(1)
     cleanup()
     fixture({ workspaceId: null, snapshot: null }, [])
     expect(screen.getByText(zh['workspace.empty'])).toBeTruthy()
+    expect(screen.queryByRole('button', { name: zh['workspace.label'] })).toBeNull()
   })
 })

@@ -49,24 +49,6 @@
   font-weight: 500;
 }
 
-.workspace {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-}
-
-.workspace select {
-  max-width: 240px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-base);
-  font: inherit;
-}
 
 .summary {
   display: flex;
@@ -127,10 +109,6 @@
 
 .path {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--ds-font-family-code);
   font-size: 13px;
 }
 
@@ -150,20 +128,15 @@
 }
 
 .source {
+  padding-block: 4px;
   border-bottom: 1px solid var(--dsw-alias-border-l3);
 }
 
-.source summary {
+/* The source path, its git status, and its section count on the disclosure row. */
+.sourceHeading {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 4px;
-  cursor: pointer;
-  border-radius: 8px;
-}
-
-.source summary:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .sections {
@@ -302,13 +275,6 @@
 
 .decisionField {
   flex-basis: 100%;
-}
-
-.option {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
 }
 
 .row {

@@ -27,7 +27,7 @@ This browser plugin adds an Architecture page to the sidebar. It shows the selec
 
 The [profile bundle](../architecture-profile/README.md) adds this row beside the [architecture Remote](../api-architecture/README.md), which the plugin mounts when it loads. The page follows the first Workspace until the user picks another from the Workspace menu.
 
-The Architecture view lists each source with its git status and sections. Selecting a section opens its text. A section whose source is not committed offers Accept this content, which records the reviewed hash so Rulings may cite it. The Consultations view lists Rulings with their status, constraints, citations, unresolved points, and whether a cited section changed since issue. The Appeals view shows each appeal's reason and evidence; a pending appeal takes Uphold, Overturn, or Grant exception with a scope, plus an optional note. The Local entries view lists files under the local directory with their git status.
+The Architecture view lists each source with its git status; expanding a source lists its sections, and selecting a section opens its text. A section whose source is not committed offers Accept this content, which records the reviewed hash so Rulings may cite it. The Consultations view lists Rulings with their status, constraints, citations, unresolved points, and whether a cited section changed since issue. The Appeals view shows each appeal's reason and evidence; a pending appeal takes Uphold, Overturn, or Grant exception with a scope, plus an optional note. The Local entries view lists files under the local directory with their git status.
 
 A read failure keeps the last snapshot and shows the error above it. A failed acceptance, decision, or Session opening shows a notice beside its control.
 
@@ -39,7 +39,7 @@ A read failure keeps the last snapshot and shows the error above it. A failed ac
 <details>
 <summary>Maintainer details — click to expand</summary>
 
-`createDashboardSource` owns one reconnecting `follow` stream and replaces it when the Workspace changes. Discuss creates a Session in the Workspace, selects the `architect` preset through `remote.agentPresets.select`, and opens it; it does not seed a message. Copy lives in the `architecture` locale namespace. No runtime invariant companion is published because the plugin holds only the Remote stream and its derived store.
+`createDashboardSource` owns one reconnecting `follow` stream and replaces it when the Workspace changes. Discuss creates a Session in the Workspace, selects the `architect` preset through `remote.agentPresets.select`, and opens it; it does not seed a message. The page composes the shared Client primitives: `SegmentedTabs`, `DisclosureRow`, `Menu`, `SegmentedControl`, `PathLabel`, `Tag`, `Input`, `Button`, and `MarkdownText`; times use `relativeTime` in the Workspace sidebar's wording. Copy lives in the `architecture` locale namespace. No runtime invariant companion is published because the plugin holds only the Remote stream and its derived store.
 
 </details>
 

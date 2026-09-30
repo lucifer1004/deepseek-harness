@@ -1,6 +1,21 @@
 /** The architecture dashboard: index, Rulings, appeals, and local entries of one Workspace. */
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button, IconLoadingOutlineRegular, Input, MarkdownText, SegmentedTabs, Tag, type TagTone } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button,
+  DisclosureRow,
+  FileTypeIcon,
+  IconChevronDownOutlineRegular,
+  IconLoadingOutlineRegular,
+  Input,
+  MarkdownText,
+  Menu,
+  PathLabel,
+  SegmentedControl,
+  SegmentedTabs,
+  Tag,
+  relativeTime,
+  type TagTone,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {
@@ -56,6 +71,8 @@ const STATUS_TONE: Readonly<Record<GitFileStatus, TagTone>> = {
   ignored: 'neutral',
 }
 
+const DECISIONS = ['uphold', 'overturn', 'exception'] as const
+
 const RULING_TONE: Readonly<Record<RulingStatus, TagTone>> = {
   issued: 'outline',
   appealed: 'warning',
@@ -76,6 +93,8 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
   const [view, setView] = useState<View>('architecture')
   const [discussFailed, setDiscussFailed] = useState(false)
   const { workspaceId, snapshot, error } = dashboard
+  // Relative times are read against the snapshot's arrival; each change re-renders them.
+  const now = useMemo(() => Date.now(), [snapshot])
   const tabs = [
     { value: 'architecture', label: t('tab.architecture'), id: 'architecture-tab-architecture', panelId: 'architecture-panel' },
     { value: 'consultations', label: t('tab.consultations'), id: 'architecture-tab-consultations', panelId: 'architecture-panel' },
@@ -93,16 +112,9 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
         <div className={css.pageContent}>
           <header className={css.pageHeading}>
             <h1>{t('title')}</h1>
-            <label className={css.workspace}>
-              <span>{t('workspace.label')}</span>
-              <select
-                value={workspaceId ?? ''}
-                onChange={(event) => { if (event.target.value !== '') selectWorkspace(workspaceChoice(workspaces, event.target.value)) }}
-              >
-                {workspaceId === null && <option value="">{t('workspace.none')}</option>}
-                {workspaces.map(choice => <option key={choice.workspaceId} value={choice.workspaceId}>{choice.title}</option>)}
-              </select>
-            </label>
+            {workspaces.length > 0 && (
+              <WorkspacePicker workspaces={workspaces} workspaceId={workspaceId} selectWorkspace={selectWorkspace} t={t} />
+            )}
             {workspaceId !== null && (
               <Button
                 variant="primary"
@@ -132,8 +144,8 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
                         <SegmentedTabs items={tabs} value={view} onChange={setView} label={t('tabs.label')} />
                         <section id="architecture-panel" role="tabpanel" aria-labelledby={`architecture-tab-${view}`} className={css.panel}>
                           {view === 'architecture' && <IndexView {...props} workspaceId={workspaceId} snapshot={snapshot} />}
-                          {view === 'consultations' && <RulingsView snapshot={snapshot} t={t} />}
-                          {view === 'appeals' && <AppealsView {...props} workspaceId={workspaceId} snapshot={snapshot} />}
+                          {view === 'consultations' && <RulingsView snapshot={snapshot} now={now} t={t} />}
+                          {view === 'appeals' && <AppealsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
                           {view === 'local' && <LocalView snapshot={snapshot} t={t} />}
                         </section>
                       </>
@@ -146,11 +158,56 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
   )
 }
 
-function workspaceChoice(workspaces: readonly WorkspaceChoice[], value: string): WorkspaceId {
-  const choice = workspaces.find(entry => entry.workspaceId === value)
-  /* v8 ignore next -- the select lists only these choices. */
-  if (choice === undefined) throw new Error(`architecture: unknown workspace ${value}`)
-  return choice.workspaceId
+function WorkspacePicker({ workspaces, workspaceId, selectWorkspace, t }: {
+  workspaces: readonly WorkspaceChoice[]
+  workspaceId: WorkspaceId | null
+  selectWorkspace: (workspaceId: WorkspaceId) => void
+  t: Translate
+}): ReactNode {
+  const [open, setOpen] = useState(false)
+  const current = workspaces.find(choice => choice.workspaceId === workspaceId)
+  return (
+    <Menu
+      open={open}
+      onClose={() => { setOpen(false) }}
+      items={workspaces.map(choice => ({ id: choice.workspaceId, label: choice.title }))}
+      selectedId={workspaceId ?? undefined}
+      onSelect={(id) => {
+        setOpen(false)
+        const choice = workspaces.find(entry => entry.workspaceId === id)
+        /* v8 ignore next -- the menu lists only these choices. */
+        if (choice === undefined) throw new Error(`architecture: unknown workspace ${id}`)
+        selectWorkspace(choice.workspaceId)
+      }}
+      align="end"
+      portal
+      anchor={(
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label={t('workspace.label')}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => { setOpen(value => !value) }}
+        >
+          {current?.title ?? t('workspace.choose')}
+          <IconChevronDownOutlineRegular />
+        </Button>
+      )}
+    />
+  )
+}
+
+/**
+ * Localize an epoch time in the Workspace sidebar's hover-card form ("now", "5min ago").
+ * @param t - the dashboard copy.
+ * @param at - epoch ms.
+ * @param now - current epoch ms.
+ * @returns the label.
+ */
+function ago(t: Translate, at: number, now: number): string {
+  const { unit, n } = relativeTime(at, now)
+  return unit === 'now' ? t('time.now') : t('time.ago', { t: t(`time.${unit}`, { n: String(n) }) })
 }
 
 /** Git state of an indexed source; the snapshot lists every indexed source. */
@@ -191,6 +248,14 @@ type WorkspaceViewProps = ArchitecturePageProps & { readonly workspaceId: Worksp
 function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceViewProps): ReactNode {
   const [open, setOpen] = useState<OpenSection | null>(null)
   const [acceptFailed, setAcceptFailed] = useState(false)
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const toggle = (path: string): void => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (!next.delete(path)) next.add(path)
+      return next
+    })
+  }
   const accepted = useMemo(
     () => new Set(snapshot.acceptances.map(entry => `${entry.path}#${entry.anchor}@${entry.hash}`)),
     [snapshot.acceptances],
@@ -218,12 +283,24 @@ function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceV
         {[...bySource].map(([path, sections]) => {
           const status = sourceStatus(snapshot, path)
           return (
-            <details key={path} className={css.source}>
-              <summary>
-                <span className={css.path}>{path}</span>
-                <Tag tone={STATUS_TONE[status]}>{t(`status.${status}`)}</Tag>
-                <span className={css.meta}>{t('source.sections', { count: String(sections.length) })}</span>
-              </summary>
+            <DisclosureRow
+              key={path}
+              className={css.source}
+              contentLayoutClassName={css.sourceHeading}
+              icon={<FileTypeIcon path={path} size={16} />}
+              title={path}
+              open={expanded.has(path)}
+              expandable
+              expandOnRowClick
+              keepContentWhenOpen
+              onToggle={() => { toggle(path) }}
+              collapsedContent={(
+                <>
+                  <Tag tone={STATUS_TONE[status]}>{t(`status.${status}`)}</Tag>
+                  <span className={css.meta}>{t('source.sections', { count: String(sections.length) })}</span>
+                </>
+              )}
+            >
               <ul className={css.sections}>
                 {sections.map(section => (
                   <li key={section.anchor}>
@@ -241,14 +318,14 @@ function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceV
                   </li>
                 ))}
               </ul>
-            </details>
+            </DisclosureRow>
           )
         })}
       </div>
       {open !== null && (
         <article className={css.reader} aria-label={open.cite}>
           <header className={css.readerHeading}>
-            <span className={css.path}>{open.cite}</span>
+            <PathLabel className={css.path} path={open.cite} />
             <Button size="sm" onClick={() => { setOpen(null) }}>{t('section.close')}</Button>
           </header>
           {open.failed === true
@@ -297,12 +374,16 @@ function SectionText({ text, t }: { text: string; t: Translate }): ReactNode {
   return <div className={css.document}><MarkdownText text={text} labels={labels} /></div>
 }
 
-function RulingsView({ snapshot, t }: { snapshot: ArchitectureSnapshot; t: Translate }): ReactNode {
+function RulingsView({ snapshot, now, t }: { snapshot: ArchitectureSnapshot; now: number; t: Translate }): ReactNode {
   if (snapshot.rulings.length === 0) return <p className={css.empty}>{t('consultations.empty')}</p>
-  return <ul className={css.cards}>{snapshot.rulings.map(record => <RulingCard key={record.ruling.id} record={record} t={t} />)}</ul>
+  return (
+    <ul className={css.cards}>
+      {snapshot.rulings.map(record => <RulingCard key={record.ruling.id} record={record} now={now} t={t} />)}
+    </ul>
+  )
 }
 
-function RulingCard({ record, t }: { record: RulingRecord & { readonly stale: boolean }; t: Translate }): ReactNode {
+function RulingCard({ record, now, t }: { record: RulingRecord & { readonly stale: boolean }; now: number; t: Translate }): ReactNode {
   const { ruling } = record
   return (
     <li className={css.card}>
@@ -312,7 +393,7 @@ function RulingCard({ record, t }: { record: RulingRecord & { readonly stale: bo
         {record.stale && <Tag tone="warning">{t('ruling.stale')}</Tag>}
       </header>
       <p className={css.meta}>
-        {ruling.id} · {t('ruling.meta', { time: new Date(record.issuedAt).toLocaleString(), session: record.workerSession })}
+        {ruling.id} · {t('ruling.meta', { time: ago(t, record.issuedAt, now), session: record.workerSession })}
       </p>
       {ruling.summary !== '' && <p>{ruling.summary}</p>}
       <h3 className={css.subheading}>{t('ruling.constraints')}</h3>
@@ -345,7 +426,7 @@ function RulingCard({ record, t }: { record: RulingRecord & { readonly stale: bo
   )
 }
 
-function AppealsView({ workspaceId, snapshot, adjudicate, t }: WorkspaceViewProps): ReactNode {
+function AppealsView({ workspaceId, snapshot, now, adjudicate, t }: WorkspaceViewProps & { readonly now: number }): ReactNode {
   if (snapshot.appeals.length === 0) return <p className={css.empty}>{t('appeals.empty')}</p>
   return (
     <ul className={css.cards}>
@@ -355,6 +436,7 @@ function AppealsView({ workspaceId, snapshot, adjudicate, t }: WorkspaceViewProp
           appeal={appeal}
           question={snapshot.rulings.find(record => record.ruling.id === appeal.rulingId)?.ruling.question}
           decide={adjudication => adjudicate(workspaceId, appeal.id, adjudication)}
+          now={now}
           t={t}
         />
       ))}
@@ -362,10 +444,11 @@ function AppealsView({ workspaceId, snapshot, adjudicate, t }: WorkspaceViewProp
   )
 }
 
-function AppealCard({ appeal, question, decide, t }: {
+function AppealCard({ appeal, question, decide, now, t }: {
   appeal: AppealRecord
   question: string | undefined
   decide: (adjudication: Adjudication) => Promise<boolean>
+  now: number
   t: Translate
 }): ReactNode {
   const [kind, setKind] = useState<Adjudication['kind']>('uphold')
@@ -390,7 +473,7 @@ function AppealCard({ appeal, question, decide, t }: {
           ? <Tag tone="warning">{t('appeal.pending')}</Tag>
           : <Tag tone="info">{decided.kind === 'exception' ? t('appeal.decided.exception', { scope: decided.scope }) : t(`appeal.decided.${decided.kind}`)}</Tag>}
       </header>
-      <p className={css.meta}>{t('appeal.ruling', { ruling: appeal.rulingId })} · {new Date(appeal.filedAt).toLocaleString()}</p>
+      <p className={css.meta}>{t('appeal.ruling', { ruling: appeal.rulingId })} · {ago(t, appeal.filedAt, now)}</p>
       <h3 className={css.subheading}>{t('appeal.reason')}</h3>
       <p>{appeal.reason}</p>
       {appeal.evidence.length > 0 && (
@@ -407,18 +490,21 @@ function AppealCard({ appeal, question, decide, t }: {
           </p>
         )
         : (
-          <fieldset className={css.decision} disabled={busy}>
-            {(['uphold', 'overturn', 'exception'] as const).map(option => (
-              <label key={option} className={css.option}>
-                <input type="radio" name={`decision-${appeal.id}`} checked={kind === option} onChange={() => { setKind(option) }} />
-                {t(`appeal.${option}`)}
-              </label>
-            ))}
+          <div className={css.decision}>
+            <SegmentedControl
+              id={`decision-${appeal.id}`}
+              value={kind}
+              options={DECISIONS.map(option => ({ value: option, label: t(`appeal.${option}`) }))}
+              onChange={setKind}
+              label={t('appeal.decision')}
+              disabled={busy}
+            />
             {kind === 'exception' && (
               <Input
                 className={css.decisionField as string}
                 aria-label={t('appeal.exceptionScope')}
                 placeholder={t('appeal.exceptionPlaceholder')}
+                disabled={busy}
                 value={scope}
                 onChange={(event) => { setScope(event.target.value) }}
               />
@@ -427,12 +513,15 @@ function AppealCard({ appeal, question, decide, t }: {
               className={css.decisionField as string}
               aria-label={t('appeal.note')}
               placeholder={t('appeal.note')}
+              disabled={busy}
               value={note}
               onChange={(event) => { setNote(event.target.value) }}
             />
-            <Button variant="primary" size="sm" disabled={kind === 'exception' && scope.trim() === ''} onClick={submit}>{t('appeal.submit')}</Button>
+            <Button variant="primary" size="sm" disabled={busy || (kind === 'exception' && scope.trim() === '')} onClick={submit}>
+              {t('appeal.submit')}
+            </Button>
             {failed && <p className={css.notice} role="alert">{t('appeal.failed')}</p>}
-          </fieldset>
+          </div>
         )}
     </li>
   )
@@ -448,7 +537,7 @@ function LocalView({ snapshot, t }: { snapshot: ArchitectureSnapshot; t: Transla
           <ul className={css.cards}>
             {snapshot.localEntries.map(entry => (
               <li key={entry.path} className={css.row}>
-                <span className={css.path}>{entry.path}</span>
+                <PathLabel className={css.path} path={entry.path} />
                 <Tag tone={STATUS_TONE[entry.status]}>{t(`status.${entry.status}`)}</Tag>
               </li>
             ))}

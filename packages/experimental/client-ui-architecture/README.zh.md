@@ -27,7 +27,7 @@ kind: "package-reference"
 
 [Profile Bundle](../architecture-profile/README.zh.md)在[架构 Remote](../api-architecture/README.zh.md)旁添加这一行，插件加载时挂载该 Remote。页面默认跟随第一个工作区，直到用户从工作区菜单选择另一个。
 
-“架构”视图列出每个来源及其 git 状态和章节。选择章节会打开其文本。来源未提交的章节提供“接受此内容”，记录审阅时的哈希，使裁定可以引用它。“咨询”视图列出裁定及其状态、约束、引用、未决点，以及引用章节在发布后是否变化。“申诉”视图展示每个申诉的理由和证据；待处理的申诉可以维持、推翻或按范围授予豁免，并可附加说明。“本地条目”视图列出本地目录下的文件及其 git 状态。
+“架构”视图列出每个来源及其 git 状态；展开来源会列出其章节，选择章节会打开其文本。来源未提交的章节提供“接受此内容”，记录审阅时的哈希，使裁定可以引用它。“咨询”视图列出裁定及其状态、约束、引用、未决点，以及引用章节在发布后是否变化。“申诉”视图展示每个申诉的理由和证据；待处理的申诉可以维持、推翻或按范围授予豁免，并可附加说明。“本地条目”视图列出本地目录下的文件及其 git 状态。
 
 读取失败时保留上一个快照，并在其上方显示错误。接受、裁决或开启 Session 失败时，在对应控件旁显示提示。
 
@@ -39,7 +39,7 @@ kind: "package-reference"
 <details>
 <summary>维护者信息 — 点击展开</summary>
 
-`createDashboardSource` 持有一个可重连的 `follow` 流，并在工作区变化时替换它。“讨论架构”在工作区中创建 Session，通过 `remote.agentPresets.select` 选择 `architect` 预设并打开它；它不预填消息。文案位于 `architecture` locale 命名空间。本包不发布 runtime invariant companion：插件只持有 Remote 流及其派生 store。
+`createDashboardSource` 持有一个可重连的 `follow` 流，并在工作区变化时替换它。“讨论架构”在工作区中创建 Session，通过 `remote.agentPresets.select` 选择 `architect` 预设并打开它；它不预填消息。页面由共享的 Client primitives 组成：`SegmentedTabs`、`DisclosureRow`、`Menu`、`SegmentedControl`、`PathLabel`、`Tag`、`Input`、`Button` 与 `MarkdownText`；时间通过 `relativeTime` 按工作区侧边栏的措辞显示。文案位于 `architecture` locale 命名空间。本包不发布 runtime invariant companion：插件只持有 Remote 流及其派生 store。
 
 </details>
 
