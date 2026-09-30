@@ -39,7 +39,7 @@ kind: "package-bundle"
 
 ### 你会得到什么
 
-这一层插入 `architecture` 服务、worker 的 `consult_architect` 与 `appeal_ruling` 工具、[架构 Remote](../api-architecture/README.zh.md) 与[仪表盘](../client-ui-architecture/README.zh.md)，以及 `architect` preset。该 preset 挂载 persona、agent 指令、`read`/`glob`/`grep`、`web_search`/`web_fetch`、会话查询工具、`ask_user_question`、`todo_write` 以及三个架构师工具。它的 `write` 与 `edit` 工具仍不可用，因为服务的 `architectTools` 列表不包含它们。
+这一层插入 `architecture` 服务、worker 的 `consult_architect` 与 `appeal_ruling` 工具、[架构 Remote](../api-architecture/README.zh.md) 与[仪表盘](../client-ui-architecture/README.zh.md)，以及 `architect` preset。该 preset 挂载 persona、agent 指令、`read`/`glob`/`grep`、`web_search`/`web_fetch`、会话查询工具、`ask_user_question`、`todo_write` 以及三个架构师工具。服务只向 `architect` agent 展示其 `architectTools`，因此 preset 的 `write`、`edit` 与 Host 上的 worker 工具都不在它的工具列表中。`architecture` 这一行不带 config：profile patch 会替换一行的整个 `config`，所以由 profile 设置 `mainBranch`，其余字段取服务默认值。
 
 -----
 

@@ -46,7 +46,7 @@ Choose it when agents should check design decisions against a committed architec
         name: '@deepseek-ai/dsh-experimental-tool-architecture/architect'
 ```
 
-Both entries inject `architecture`, `tools`, and `systemPrompt`. List the architect tool names in the service's `architectTools`, or the service's guard denies them to the architect.
+Both entries inject `architecture`, `tools`, and `systemPrompt`. The service's `architectTools` lists the architect tool names by default; a list that omits one hides that tool from the architect and denies its calls.
 
 ### What success and failure look like
 

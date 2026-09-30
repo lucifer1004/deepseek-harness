@@ -59,7 +59,7 @@ exclude:
 | `manifestPath` | `architecture.yml` | manifest 的工作区相对路径。 |
 | `localDirectory` | `.architecture` | 本地架构条目及 Ruling、申诉与接受记录的工作区相对目录；其下所有路径都受保护。 |
 | `architectPreset` | `architect` | 该 agent preset 的 agent 只能运行 `architectTools`。 |
-| `architectTools` | `[]` | `architectPreset` agent 可以运行的工具名。 |
+| `architectTools` | `DEFAULT_ARCHITECT_TOOLS` | `architectPreset` agent 可以看到并运行的工具名。默认值包含 `read`、`glob`、`grep`、`web_search`、`web_fetch`、会话查询工具、三个架构工具、`ask_user_question` 与 `todo_write`。 |
 | `gitTimeoutMs` | `10000` | 单条 git 命令可运行的毫秒数。 |
 | `maxSourceBytes` | `1048576` | 建立索引时单个来源读取的字节上限。 |
 | `consultTimeoutMs` | `300000` | 一次咨询等待架构师提交 Ruling 的毫秒数。 |
@@ -86,7 +86,7 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 
 工具守卫是同步的，因此 checkout 发现从磁盘读取 `.git`、`commondir` 与 `HEAD`，而不运行 git。linked worktree 中受保护文件的副本同样受保护，因此 worktree 中的 worker 不能在那里修改来源再 merge 回来。在第一次重建之前，manifest 与本地目录就已受保护。比较之前，目标路径会经由符号链接祖先目录规范化。本包不发布 runtime invariant companion：服务从自己构建的索引推导受保护路径集，不存在能与之相互偏离的独立观察。
 
-咨询把架构师创建为 worker 会话的隐藏子 agent，`origin` 为 `'subagent'`，向其挂载 `architectPreset`，只保留该 preset 提供的 `architectTools`，并注册一个作用域内的 `submit_ruling` 工具和一段提示词。第一次提交结束该轮；之后的每次调用都被守卫拒绝。运行在提交时、到达 `consultTimeoutMs` 时或 worker 的信号中止时结束，架构师 agent 在每种情况下都会被释放。随后宿主检查每个被引用的 `path#anchor`：该章节必须在当前索引中，且在 `refs/heads/<mainBranch>` 上已提交的文件中具有相同的内容哈希。没有引用或任一引用失败的约束会成为未决点，其原因指明失败，因此未提交的草稿永远不会约束 worker。章节编辑替换从章节标题到其最后一行的内容，保留它与下一个标题之间的空行；`expectedHash` 与章节当前哈希不同时被拒绝。
+咨询把架构师创建为 worker 会话的隐藏子 agent，`origin` 为 `'subagent'`，向其挂载 `architectPreset`，只保留该 preset 提供的 `architectTools`，但不含 `architecture_edit` 与 `ask_user_question`，因为咨询中没有用户参与，并注册一个作用域内的 `submit_ruling` 工具和一段提示词。第一次提交结束该轮；之后的每次调用都被守卫拒绝。运行在提交时、到达 `consultTimeoutMs` 时或 worker 的信号中止时结束，架构师 agent 在每种情况下都会被释放。随后宿主检查每个被引用的 `path#anchor`：该章节必须在当前索引中，且在 `refs/heads/<mainBranch>` 上已提交的文件中具有相同的内容哈希。没有引用或任一引用失败的约束会成为未决点，其原因指明失败，因此未提交的草稿永远不会约束 worker。章节编辑替换从章节标题到其最后一行的内容，保留它与下一个标题之间的空行；`expectedHash` 与章节当前哈希不同时被拒绝。
 
 记录是本地目录下的 JSON 文件：`rulings/<id>.json`、`appeals/<id>.json` 与 `acceptances.json`。每次写入都经过临时文件与重命名。读取方校验每个文件，把无效文件报告在快照的 `problems` 中，而不读取它。对同一仓库记录的写入是串行的。`recordRuling()` 保存 worker 收到的 Ruling 及其索引修订；`appeal()` 只接受发给申诉方会话的 Ruling。`adjudicate()` 记录裁决、设置 Ruling 状态，并对 worker 的活动 agent 调用 `agent.steer()`，消息来源为 `{ kind: 'architecture', appealId }`；`agent/created` 监听器在 agent 下次创建时送达其不活动期间作出的裁决。`accept()` 拒绝与章节当前哈希不同的哈希；对已按该哈希接受的章节的引用无需提交即可通过校验。每次变更在写入后以仓库根目录发出 `architecture/changed`。
 

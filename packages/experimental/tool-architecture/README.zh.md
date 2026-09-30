@@ -46,7 +46,7 @@ kind: "package-reference"
         name: '@deepseek-ai/dsh-experimental-tool-architecture/architect'
 ```
 
-两个入口都注入 `architecture`、`tools` 与 `systemPrompt`。把架构师工具名列入服务的 `architectTools`，否则服务的守卫会对架构师拒绝这些工具。
+两个入口都注入 `architecture`、`tools` 与 `systemPrompt`。服务的 `architectTools` 默认列出这些架构师工具名；省略其中某个的列表会对架构师隐藏该工具并拒绝其调用。
 
 ### 成功与失败的表现
 

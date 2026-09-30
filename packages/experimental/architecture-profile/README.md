@@ -39,7 +39,7 @@ Commit an `architecture.yml` manifest at the repository root, as the [service RE
 
 ### What you get
 
-The layer inserts the `architecture` service, the worker `consult_architect` and `appeal_ruling` tools, the [architecture Remote](../api-architecture/README.md) and [dashboard](../client-ui-architecture/README.md), and an `architect` preset. The preset mounts persona, agent instructions, `read`/`glob`/`grep`, `web_search`/`web_fetch`, Session query tools, `ask_user_question`, `todo_write`, and the three architect tools. Its `write` and `edit` tools stay unavailable, because the service's `architectTools` list omits them.
+The layer inserts the `architecture` service, the worker `consult_architect` and `appeal_ruling` tools, the [architecture Remote](../api-architecture/README.md) and [dashboard](../client-ui-architecture/README.md), and an `architect` preset. The preset mounts persona, agent instructions, `read`/`glob`/`grep`, `web_search`/`web_fetch`, Session query tools, `ask_user_question`, `todo_write`, and the three architect tools. The service shows an `architect` agent only its `architectTools`, so the preset's `write` and `edit` and the Host worker tools stay out of its tool list. The `architecture` row carries no config: a profile patch replaces a row's whole `config`, so the profile sets `mainBranch` and the service defaults supply the rest.
 
 -----
 
