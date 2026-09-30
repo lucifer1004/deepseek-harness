@@ -8,7 +8,7 @@
  */
 
 import { indexSections } from './sections.ts'
-import type { ArchitectureIndex, Citation, CitationFailure, SourcePath } from './types.ts'
+import type { ArchitectureIndex, Citation, CitationFailure, IndexedSection, SourcePath } from './types.ts'
 
 /** Reads a source file as committed on `mainBranch`. */
 export type ReadCommitted = (path: SourcePath) => Promise<string | undefined>
@@ -29,12 +29,18 @@ export function parseCite(cite: string): { path: string; anchor: string } | unde
   return { path: cite.slice(0, at), anchor: cite.slice(at + 1) }
 }
 
+/** Whether the user accepted this exact section content in the dashboard. */
+export type IsAccepted = (section: Pick<IndexedSection, 'path' | 'anchor' | 'hash'>) => boolean
+
 /**
- * Verify citations against one index and the committed sources.
+ * Verify citations against one index and the committed sources. A section is
+ * citable when its current content is committed on `mainBranch` or the user
+ * accepted that exact content.
  * @param index - current index of the primary worktree.
  * @param cites - `path#anchor` references.
  * @param mainBranch - branch whose committed text is authoritative.
  * @param readCommitted - reads a source as committed on `mainBranch`.
+ * @param isAccepted - whether the user accepted a section's current content.
  * @returns one check per citation, in input order.
  */
 export async function verifyCitations(
@@ -42,6 +48,7 @@ export async function verifyCitations(
   cites: readonly string[],
   mainBranch: string,
   readCommitted: ReadCommitted,
+  isAccepted: IsAccepted,
 ): Promise<CitationCheck[]> {
   const committedHashes = async (path: SourcePath): Promise<Map<string, string>> => {
     const text = await readCommitted(path)
@@ -59,8 +66,7 @@ export async function verifyCitations(
       checks.push({ kind: 'failed', failure: { kind: 'unknown-section', cite } })
       continue
     }
-    const hashes = await committedHashes(section.path)
-    if (hashes.get(section.anchor) !== section.hash) {
+    if (!isAccepted(section) && (await committedHashes(section.path)).get(section.anchor) !== section.hash) {
       checks.push({ kind: 'failed', failure: { kind: 'uncommitted', cite, mainBranch } })
       continue
     }
@@ -81,6 +87,6 @@ export function describeCitationFailure(failure: CitationFailure): string {
     case 'unknown-section':
       return `"${failure.cite}" names no indexed architecture section`
     case 'uncommitted':
-      return `"${failure.cite}" differs from the section committed on ${failure.mainBranch}, or is not committed there`
+      return `"${failure.cite}" differs from the section committed on ${failure.mainBranch}, or is not committed there, and the user has not accepted it`
   }
 }

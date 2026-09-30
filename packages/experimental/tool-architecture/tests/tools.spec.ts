@@ -4,11 +4,11 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
@@ -74,7 +74,11 @@ async function boot(script: Script): Promise<{ ctx: Context; adapter: MockAdapte
 
 /** An agent on `preset`; the architect preset also mounts the architect tools, as the profile's preset row does. */
 async function agent(ctx: Context, repo: string, id: string, preset: string): Promise<Agent> {
-  const handle = await ctx.agents.create({
+  return (await createAgent(ctx, repo, id, preset)).agent
+}
+
+async function createAgent(ctx: Context, repo: string, id: string, preset: string): Promise<AgentHandle> {
+  return await ctx.agents.create({
     sessionId: SessionId(id),
     meta: { cwd: repo, agentPreset: preset },
     agentOptions: { provider: 'mock', model: 'mock' },
@@ -83,13 +87,21 @@ async function agent(ctx: Context, repo: string, id: string, preset: string): Pr
       if (preset === 'architect') await agentCtx.plugin(ArchitectTools)
     },
   })
-  return handle.agent
 }
 
 async function call(ctx: Context, caller: Agent, name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
   const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(`c-${name}`), name, arguments: args, agent: caller })
   const first = result.content[0]
   return { text: first?.type === 'text' ? first.text : '', isError: result.isError ?? false }
+}
+
+async function waitFor<T>(probe: () => Promise<T | undefined>): Promise<T> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const value = await probe()
+    if (value !== undefined) return value
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  throw new Error('condition not reached')
 }
 
 function expectResult(result: { text: string; isError: boolean }, isError: boolean, text: RegExp): void {
@@ -185,14 +197,106 @@ describe('consult_architect', () => {
     expect(text).toMatch(/Ruling ruling-[0-9a-f-]+: Use the store\./)
     expect(text).toContain('Binding constraints:\\n1. Persist through the store. (design/arch.md#storage)')
     expect(text).toContain('Unresolved, not binding:\\n- Is caching allowed?\\n- Use YAML. (no citation to an architecture section)')
-    expect(adapter.requests[0]?.tools?.map(tool => tool.name).sort()).toEqual(['consult_architect', 'read', 'write'])
+    expect(adapter.requests[0]?.tools?.map(tool => tool.name).sort()).toEqual(['appeal_ruling', 'consult_architect', 'read', 'write'])
     expect(JSON.stringify(adapter.requests[0]?.messages[0])).toContain('call `consult_architect`')
+
+    const snapshot = await waitFor(async () => {
+      const current = await ctx.architecture.snapshot(repo)
+      return current.rulings.length === 1 ? current : undefined
+    })
+    const [record] = snapshot.rulings
+    expect(record?.workerSession).toBe('worker')
+    expect(record?.status).toBe('issued')
+    expect(record?.stale).toBe(false)
+    expect(record?.revision).toBe(snapshot.revision)
+    expect(text).toContain(`Ruling ${record?.ruling.id}:`)
+  })
+
+  it('files an appeal, delivers the user decision to the worker, and records the outcome', async () => {
+    const submission = { summary: 'Use the store.', constraints: [{ statement: 'Persist through the store.', cites: ['design/arch.md#storage'] }], unresolved: [] }
+    const { ctx, adapter, repo } = await boot([
+      toolCallResponse('w1', 'consult_architect', { question: 'Where does persistence go?' }),
+      toolCallResponse('a1', 'submit_ruling', submission),
+      textResponse('architect done'),
+      textResponse('worker done'),
+      textResponse('noted the exception'),
+    ])
+    const worker = await agent(ctx, repo, 'worker', 'coding')
+    const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
+    worker.followup(createUserMessage({ content: [{ type: 'text', text: 'add persistence' }], source: { kind: 'user' } }))
+    await worker.whenIdle()
+    const rulingId = (await waitFor(async () => (await ctx.architecture.snapshot(repo)).rulings[0]))?.ruling.id ?? ''
+
+    expectResult(await call(ctx, worker, 'appeal_ruling', { rulingId, reason: ' ' }), true, /reason must be a non-empty string/)
+    expectResult(await call(ctx, worker, 'appeal_ruling', { rulingId: 'ruling-unknown', reason: 'x' }), true, /no recorded Ruling ruling-unknown/)
+    const other = await agent(ctx, repo, 'other', 'coding')
+    expectResult(await call(ctx, other, 'appeal_ruling', { rulingId, reason: 'x' }), true, /issued to another Session/)
+    const filed = await call(ctx, worker, 'appeal_ruling', { rulingId, reason: 'The store cannot stream.', evidence: ['src/stream.ts'] })
+    expectResult(filed, false, new RegExp(`^Appeal appeal-[0-9a-f-]+ filed against Ruling ${rulingId}\\.`))
+
+    let snapshot = await ctx.architecture.snapshot(repo)
+    const [appeal] = snapshot.appeals
+    expect(snapshot.rulings[0]?.status).toBe('appealed')
+    expect(appeal).toMatchObject({ reason: 'The store cannot stream.', evidence: ['src/stream.ts'], delivered: false })
+    if (appeal === undefined) return
+
+    await ctx.architecture.adjudicate(repo, appeal.id, { kind: 'exception', scope: 'src/stream.ts', note: 'streaming only' })
+    await worker.whenIdle()
+    snapshot = await ctx.architecture.snapshot(repo)
+    expect(snapshot.rulings[0]?.status).toBe('excepted')
+    expect(snapshot.appeals[0]).toMatchObject({ adjudication: { kind: 'exception', scope: 'src/stream.ts' }, delivered: true })
+    const steered = JSON.stringify(adapter.requests.at(-1)?.messages)
+    expect(steered).toContain(`The user granted an exception to Ruling ${rulingId} on your appeal ${appeal.id}, limited to: src/stream.ts.`)
+    expect(steered).toContain('The user notes: streaming only')
+    await expect(ctx.architecture.adjudicate(repo, appeal.id, { kind: 'uphold' })).rejects.toThrow(/already decided/)
+  })
+
+  it('delivers a decision made while the worker was not live when its agent is next created', async () => {
+    const submission = { summary: 'Use the store.', constraints: [], unresolved: [] }
+    const { ctx, adapter, repo } = await boot([
+      toolCallResponse('w1', 'consult_architect', { question: 'q' }),
+      toolCallResponse('a1', 'submit_ruling', submission),
+      textResponse('architect done'),
+      textResponse('worker done'),
+      textResponse('ok, keeping it'),
+    ])
+    const handle = await createAgent(ctx, repo, 'worker', 'coding')
+    const worker = handle.agent
+    const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
+    worker.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await worker.whenIdle()
+    const rulingId = (await waitFor(async () => (await ctx.architecture.snapshot(repo)).rulings[0]))?.ruling.id ?? ''
+    await call(ctx, worker, 'appeal_ruling', { rulingId, reason: 'wrong' })
+    const appealId = (await ctx.architecture.snapshot(repo)).appeals[0]?.id
+    if (appealId === undefined) throw new Error('appeal missing')
+    await handle.dispose()
+    await ctx.architecture.adjudicate(repo, appealId, { kind: 'uphold' })
+    expect((await ctx.architecture.snapshot(repo)).appeals[0]?.delivered).toBe(false)
+
+    const revived = await agent(ctx, repo, 'worker', 'coding')
+    await waitFor(async () => (await ctx.architecture.snapshot(repo)).appeals[0]?.delivered === true ? true : undefined)
+    await revived.whenIdle()
+    expect(JSON.stringify(adapter.requests.at(-1)?.messages)).toContain(`The user upheld Ruling ${rulingId} on your appeal ${appealId}. Keep following its constraints.`)
   })
 
   it('renders a consultation without a Ruling', () => {
     expect(WorkerTools.renderConsultation({ status: 'timeout', rulingId: 'r1', constraints: [], unresolved: [] })).toMatch(/did not answer in time \(r1\)/)
     expect(WorkerTools.renderConsultation({ status: 'no-submission', rulingId: 'r2', constraints: [], unresolved: [] })).toMatch(/ended without a Ruling \(r2\)/)
     expect(WorkerTools.renderConsultation({ status: 'ruling', rulingId: 'r3', constraints: [], unresolved: [] })).toBe('Ruling r3: \n\nNo binding constraints.')
+  })
+
+  it('logs a Ruling record that could not be written without failing the consultation', async () => {
+    const { ctx, repo } = await boot([
+      toolCallResponse('a1', 'submit_ruling', { summary: 's', constraints: [], unresolved: [] }),
+      textResponse('architect done'),
+    ])
+    const worker = await agent(ctx, repo, 'worker', 'coding')
+    const record = vi.spyOn(ctx.architecture, 'recordRuling').mockRejectedValueOnce(new Error('disk full'))
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    expectResult(await call(ctx, worker, 'consult_architect', { question: 'q' }), false, /^Ruling ruling-/)
+    await vi.waitFor(() => { expect(warn).toHaveBeenCalledOnce() })
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/recording Ruling ruling-[0-9a-f-]+ failed: Error: disk full/)
+    expect(record).toHaveBeenCalledOnce()
   })
 
   it('reports a consultation that ends without a Ruling', async () => {
@@ -208,5 +312,7 @@ describe('consult_architect', () => {
     expectResult(await call(ctx, worker, 'consult_architect', { question: '  ' }), true, /non-empty/)
     const agentless = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('x'), name: 'consult_architect', arguments: { question: 'q' } })
     expect(agentless.isError).toBe(true)
+    const appealless = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('y'), name: 'appeal_ruling', arguments: { rulingId: 'r', reason: 'x' } })
+    expect(appealless.isError).toBe(true)
   })
 })

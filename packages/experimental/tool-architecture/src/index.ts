@@ -7,9 +7,11 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
-import type { ConsultResult, Ruling } from '@deepseek-ai/dsh-experimental-architecture'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { ConsultResult, Ruling, RulingId } from '@deepseek-ai/dsh-experimental-architecture'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { InferValue } from '@deepseek-ai/dsh-tools'
+import type { InferValue, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 
 /** Cordis plugin name. */
 export const name = 'tool-architecture'
@@ -20,6 +22,7 @@ export const inject = ['architecture', 'tools', 'systemPrompt']
 export const WORKER_POLICY = [
   'This workspace keeps its architecture in committed documents. Before a change that adds or moves a responsibility between modules, changes a public interface or data format, or introduces a new dependency or pattern, call `consult_architect` with the concrete question and the paths involved.',
   'A Ruling\'s constraints are binding: follow them even when a local shortcut looks easier. Unresolved points are not constraints; decide them yourself or ask the user.',
+  'When you have concrete evidence that a constraint is wrong for this change, call `appeal_ruling` with the Ruling id, your reason, and the evidence. The constraint stays binding until the user decides; continue work it does not affect, or stop and wait.',
   'Architecture documents are read-only for you. Do not edit them with file tools or shell commands.',
 ].join('\n\n')
 
@@ -118,11 +121,33 @@ export function renderConsultation(value: ConsultValue): string {
   return lines.join('\n')
 }
 
+/** A Ruling awaiting its tool result, keyed by the consulting call's execution token. */
+interface PendingRecord {
+  readonly cwd: string
+  readonly workerSession: SessionId
+  readonly result: Extract<ConsultResult, { kind: 'ruling' }>
+}
+
 /**
- * Register `consult_architect` and the worker guidance.
+ * Register `consult_architect`, `appeal_ruling`, and the worker guidance.
  * @param ctx - plugin context with `architecture`, `tools`, and `systemPrompt`.
  */
 export function apply(ctx: Context): void {
+  const pending = new Map<ToolExecutionToken, PendingRecord>()
+  // The record follows the final tool result, so the dashboard never lists a Ruling the worker did not receive.
+  ctx.on('tools/result', (exec, result) => {
+    const record = pending.get(exec.token)
+    pending.delete(exec.token)
+    if (record === undefined || result.isError) return
+    void ctx.architecture.recordRuling(record.cwd, {
+      ruling: record.result.ruling,
+      workerSession: record.workerSession,
+      architectSession: record.result.session,
+      revision: record.result.revision,
+    }).catch((error: unknown) => {
+      ctx.logger.warn(`architecture: recording Ruling ${record.result.ruling.id} failed: ${String(error)}`)
+    })
+  })
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'tool:consult-architect',
     order: ctx.systemPrompt.getSectionOrder('TOOL_SUBAGENT'),
@@ -141,13 +166,46 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec) {
       if (args.question.trim().length === 0) throw new Error('question must be a non-empty string')
-      if (exec.agent === undefined) throw new Error('consult_architect requires a calling agent')
-      return consultValue(await ctx.architecture.consult({
-        worker: exec.agent,
-        question: args.question,
-        scope: args.scope ?? [],
-        signal: exec.signal,
-      }))
+      const worker = exec.agent
+      if (worker === undefined) throw new Error('consult_architect requires a calling agent')
+      const result = await ctx.architecture.consult({ worker, question: args.question, scope: args.scope ?? [], signal: exec.signal })
+      const cwd = worker.session.header.cwd
+      if (result.kind === 'ruling' && cwd !== undefined) pending.set(exec.token, { cwd, workerSession: worker.id, result })
+      return consultValue(result)
     },
   })), 'architecture: consult_architect')
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'appeal_ruling',
+    description: 'Appeal a Ruling you received from consult_architect when you have concrete evidence that one of its constraints is wrong for your change. The user decides; you receive the decision as a message. The Ruling stays binding until then.',
+    parameters: {
+      rulingId: { type: 'string', required: true, description: 'The Ruling id from the consult_architect result.' },
+      reason: { type: 'string', required: true, description: 'Which constraint is wrong for this change, and why.' },
+      evidence: { type: 'array', items: { type: 'string' }, description: 'Paths, test names, error messages, or quotes that support the reason.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { appealId: { type: 'string', required: true }, rulingId: { type: 'string', required: true } },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `Appeal ${value.appealId} filed against Ruling ${value.rulingId}. The Ruling stays binding until the user decides; the decision arrives as a message.`,
+      }],
+    },
+    async execute(args, exec) {
+      if (args.reason.trim().length === 0) throw new Error('reason must be a non-empty string')
+      const worker = exec.agent
+      const cwd = worker?.session.header.cwd
+      if (worker === undefined || cwd === undefined) throw new Error('appeal_ruling requires a calling agent with a working directory')
+      const appeal = await ctx.architecture.appeal({
+        cwd,
+        rulingId: brandString<RulingId>(args.rulingId),
+        workerSession: worker.id,
+        reason: args.reason,
+        evidence: args.evidence ?? [],
+      })
+      return { appealId: appeal.id, rulingId: appeal.rulingId }
+    },
+  })), 'architecture: appeal_ruling')
 }

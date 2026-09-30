@@ -1,0 +1,81 @@
+---
+description: "Show a Workspace's architecture record, Rulings, appeals, and local entries in a Web dashboard."
+kind: "package-reference"
+---
+
+# @deepseek-ai/dsh-experimental-client-ui-architecture
+
+English | [中文](README.zh.md)
+
+## Summary
+
+This browser plugin adds an Architecture page to the sidebar. It shows the selected Workspace's indexed sources and sections, the Rulings workers received, pending and decided appeals, and files under the local architecture directory. It updates live. Discuss architecture opens a new Session on the `architect` preset.
+
+## Table of Contents
+
+- [Use this package](#use-this-package)
+- [Understand the implementation](#understand-the-implementation)
+- [Further Exploration](#further-exploration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## Use this package
+
+The [profile bundle](../architecture-profile/README.md) adds this row beside the [architecture Remote](../api-architecture/README.md), which the plugin mounts when it loads. The page follows the first Workspace until the user picks another from the Workspace menu.
+
+The Architecture view lists each source with its git status and sections. Selecting a section opens its text. A section whose source is not committed offers Accept this content, which records the reviewed hash so Rulings may cite it. The Consultations view lists Rulings with their status, constraints, citations, unresolved points, and whether a cited section changed since issue. The Appeals view shows each appeal's reason and evidence; a pending appeal takes Uphold, Overturn, or Grant exception with a scope, plus an optional note. The Local entries view lists files under the local directory with their git status.
+
+A read failure keeps the last snapshot and shows the error above it. A failed acceptance, decision, or Session opening shows a notice beside its control.
+
+-----
+
+<a id="understand-the-implementation"></a>
+## Understand the implementation
+
+<details>
+<summary>Maintainer details — click to expand</summary>
+
+`createDashboardSource` owns one reconnecting `follow` stream and replaces it when the Workspace changes. Discuss creates a Session in the Workspace, selects the `architect` preset through `remote.agentPresets.select`, and opens it; it does not seed a message. Copy lives in the `architecture` locale namespace. No runtime invariant companion is published because the plugin holds only the Remote stream and its derived store.
+
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## Further Exploration
+
+[Architecture agent subsystem](../../../docs/subsystems/architecture-agent.md)
+
+-----
+
+<a id="model-experience"></a>
+## Model Experience
+
+None, as the dashboard adds nothing to model requests itself. Decisions and acceptances go through the [architecture Remote](../api-architecture/README.md); the [service README](../architecture/README.md#model-experience) describes their model-visible effects.
+
+#### KV Cache effect
+
+No direct effect.
+
+## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
+- The page has no search or filter over sections or Rulings.
+- Background proposals and a live Activity view of worker Sessions are not implemented.
+
+-----
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Maintainer details — click to expand</summary>
+
+None.
+
+</details>

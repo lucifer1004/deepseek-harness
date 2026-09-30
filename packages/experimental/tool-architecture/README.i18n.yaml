@@ -9,8 +9,8 @@
   en: de1b433b566fdade
   zh: 8a77b1d5a53eef95
 /deepseek-ai-dsh-experimental-tool-architecture/summary:
-  en: fba3981b54634916
-  zh: 73b28b3d3b5fe355
+  en: 1a65dc5010e08726
+  zh: 0a404b8091e71e76
 /deepseek-ai-dsh-experimental-tool-architecture/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -24,11 +24,11 @@
   en: f7d268f1bcfcd88e
   zh: 0357dfd96c14ccab
 /deepseek-ai-dsh-experimental-tool-architecture/use-this-package/what-success-and-failure-look-like:
-  en: a05188e5ecaee9a8
-  zh: a395aa3bde8d70ae
+  en: 5c56f67e0a1fb498
+  zh: 81a963e8e8d6f58f
 /deepseek-ai-dsh-experimental-tool-architecture/understand-the-implementation:
-  en: b009fa5631f485f8
-  zh: ffe4fef68891391d
+  en: 0da270b832229b8f
+  zh: 3aadf768d471f0aa
 /deepseek-ai-dsh-experimental-tool-architecture/further-exploration:
   en: 2b9b4e66b2ded20c
   zh: 07717cb26965413d
@@ -39,11 +39,11 @@
   en: 6b3f7fe18238bd1b
   zh: 281149664412af10
 /deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/what-the-model-sees:
-  en: 8b0863a05510ec1b
-  zh: 5202288dc2724abd
+  en: a1246851dbd635b6
+  zh: ea64858d377e5fb3
 /deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/token-effect:
-  en: faccf68af5821815
-  zh: 07edfd8c7e3ffa4c
+  en: 2825f387c868ab01
+  zh: e613537f75009f8f
 /deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/kv-cache-effect:
   en: 69765a0ffafd9d16
   zh: eac3b16cf0dc0fb0

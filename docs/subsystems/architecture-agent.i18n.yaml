@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for architecture-agent.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/subsystems/architecture-agent.md
+/architecture-agent:
+  en: eede918ae67c2a32
+  zh: 0e743083c6a18b0b
+/architecture-agent/sources-and-index:
+  en: 5d7c028a705bc8a4
+  zh: 7f903552b638ed65
+/architecture-agent/consultation-and-rulings:
+  en: 6d3bba151e8780c9
+  zh: 4941e7ea1276eb67
+/architecture-agent/appeals-and-acceptance:
+  en: a5401c29ae077495
+  zh: 1343c05c8b3707f4
+/architecture-agent/dashboard:
+  en: 50f0e8b21fbf2ba2
+  zh: aeb9a25090f433cf
+/architecture-agent/commit-and-ci-check:
+  en: 9879f1d32dfe0821
+  zh: a0e558c8a6d0d63a
+/architecture-agent/design-rationale:
+  en: adc03a57bea4d493
+  zh: 664810431b54c16b

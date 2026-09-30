@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Keep a repository's architecture documents authoritative while agents work on its code. You list the source documents in an `architecture.yml` manifest; the package indexes every Markdown section with a GitHub anchor and a content hash, so a ruling can cite `path#anchor` at an exact version. Built-in file tools cannot write those documents from any Session, and the package's own edit path writes them only in the primary worktree on your main branch. `consult()` runs an architect agent for a worker and returns a Ruling whose binding constraints cite sections committed on the main branch; [`@deepseek-ai/dsh-experimental-tool-architecture`](../tool-architecture/README.md) exposes it to models.
+Keep a repository's architecture documents authoritative while agents work on its code. You list the source documents in an `architecture.yml` manifest; the package indexes every Markdown section with a GitHub anchor and a content hash, so a ruling can cite `path#anchor` at an exact version. Built-in file tools cannot write those documents, and the package's own edit path writes them only in the primary worktree on your main branch. `consult()` returns a Ruling whose binding constraints cite committed or user-accepted sections; Rulings, appeals, and acceptances are recorded under `.architecture/`.
 
 ## Table of Contents
 
@@ -57,7 +57,7 @@ exclude:
 |---|---|---|
 | `mainBranch` | required | Branch whose primary-worktree checkout is the only place architecture sources change. |
 | `manifestPath` | `architecture.yml` | Workspace-relative path of the manifest. |
-| `localDirectory` | `.architecture` | Workspace-relative directory for local architecture entries; every path under it is protected. |
+| `localDirectory` | `.architecture` | Workspace-relative directory for local architecture entries and the Ruling, appeal, and acceptance records; every path under it is protected. |
 | `architectPreset` | `architect` | Agent preset whose agents may run only `architectTools`. |
 | `architectTools` | `[]` | Tool names an `architectPreset` agent may run. |
 | `gitTimeoutMs` | `10000` | Milliseconds one git command may run. |
@@ -68,7 +68,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### What success and failure look like
 
-`ctx.architecture.rebuild(cwd)` returns the index of the repository containing `cwd`, or `undefined` when it has no manifest; an invalid manifest throws `ManifestError`. A source that is too large, unreadable, or not UTF-8 appears in `diagnostics` instead of failing the rebuild. A `write`, `edit`, or `str_replace_editor` call that targets a protected path fails with an error result that names the path. `ctx.architecture.edit()` returns `{ kind: 'written' }` or a refusal whose `kind` is `not-repository`, `linked-worktree`, `wrong-branch`, `not-protected`, `unknown-section`, or `stale-section`; `describeRefusal()` renders it as one sentence. `ctx.architecture.consult()` returns `{ kind: 'ruling' }`, `timeout`, or `no-submission`, and rejects when the worker cancels, the worker Session has no directory, or the repository has no manifest.
+`ctx.architecture.rebuild(cwd)` returns the index of the repository containing `cwd`, or `undefined` when it has no manifest; an invalid manifest throws `ManifestError`. A source that is too large, unreadable, or not UTF-8 appears in `diagnostics` instead of failing the rebuild. A `write`, `edit`, or `str_replace_editor` call that targets a protected path fails with an error result that names the path. `ctx.architecture.edit()` returns `{ kind: 'written' }` or a refusal whose `kind` is `not-repository`, `linked-worktree`, `wrong-branch`, `not-protected`, `unknown-section`, or `stale-section`; `describeRefusal()` renders it as one sentence. `ctx.architecture.consult()` returns `{ kind: 'ruling' }`, `timeout`, or `no-submission`, and rejects when the worker cancels, the worker Session has no directory, or the repository has no manifest. `snapshot(cwd)` returns the dashboard state; `appeal()`, `adjudicate()`, and `accept()` reject with a message naming an unknown Ruling or appeal, an already decided appeal, or a section hash that changed.
+
+### Check commits and CI
+
+The package ships [`scripts/check-architecture.sh`](scripts/check-architecture.sh), a POSIX shell script that uses only git. Run `check-architecture.sh --main-branch main staged` from a pre-commit hook to refuse a commit that changes the manifest or a source outside the primary worktree on `main`. Run `check-architecture.sh --main-branch main range origin/main HEAD` in CI on other branches to refuse a range that changes them. `--manifest <path>` reads another manifest path. It exits 1 on a violation and 2 on a usage error or a manifest it cannot read; it reads only block lists under `sources:` and `exclude:`.
 
 -----
 
@@ -84,6 +88,8 @@ The tool guard is synchronous, so checkout discovery reads `.git`, `commondir`, 
 
 A consultation creates the architect as a hidden child agent of the worker's Session with `origin: 'subagent'`, mounts `architectPreset` into it, keeps only the `architectTools` that preset provides, and registers a scoped `submit_ruling` tool with a prompt section. The first submission concludes the turn; a guard denies every later call. The run ends at submission, at `consultTimeoutMs`, or when the worker's signal aborts, and the architect agent is disposed in every case. The host then checks each cited `path#anchor`: the section must be in the current index and have the same content hash in the file committed at `refs/heads/<mainBranch>`. A constraint with no citation or any failed citation becomes an unresolved point whose reason names the failure, so an uncommitted draft never binds a worker. A section edit replaces the lines from the section heading through its last line, keeps the blank lines that separated it from the next heading, and is refused when `expectedHash` differs from the section's current hash.
 
+Records are JSON files under the local directory: `rulings/<id>.json`, `appeals/<id>.json`, and `acceptances.json`. Each write goes through a temporary file and a rename. A reader validates every file and reports an invalid one in the snapshot's `problems` instead of reading it. Writes to one repository's records are serialized. `recordRuling()` stores the Ruling a worker received with its index revision; `appeal()` accepts only a Ruling issued to the appellant's Session. `adjudicate()` records the decision, sets the Ruling's status, and calls `agent.steer()` on the worker's live agent with a message whose source is `{ kind: 'architecture', appealId }`; the `agent/created` listener delivers decisions that were made while the agent was not live. `accept()` refuses a hash that differs from the section's current hash, and a citation to an accepted section at that hash verifies without being committed. Every change emits `architecture/changed` with the repository root after the write.
+
 | Source | Responsibility |
 |---|---|
 | [src/index.ts](src/index.ts) | `ctx.architecture` service, edit rule, and tool guard |
@@ -96,6 +102,8 @@ A consultation creates the architect as a hidden child agent of the worker's Ses
 | [src/citations.ts](src/citations.ts) | Citation parsing and verification against `mainBranch` |
 | [src/ruling.ts](src/ruling.ts) | Submission validation into a Ruling |
 | [src/consultation.ts](src/consultation.ts) | Architect agent run and `submit_ruling` |
+| [src/records.ts](src/records.ts) | Ruling, appeal, and acceptance record files |
+| [scripts/check-architecture.sh](scripts/check-architecture.sh) | Commit and CI check for source changes outside the main branch |
 
 </details>
 
@@ -106,6 +114,7 @@ A consultation creates the architect as a hidden child agent of the worker's Ses
 
 These pages explain the design this package belongs to and the extension points it uses.
 
+- [Architecture agent subsystem](../../../docs/subsystems/architecture-agent.md) — types, records, and the generated `ctx.architecture` API.
 - [Architecture agent Agent Note](../../../.agents/notes/proposed/feature/2026-09-29-architecture-agent.md) — the proposed architecture agent, its Session, rulings, and appeals.
 - [Tool registry](../../core/tools/README.md) — tool guards and how a denial reaches the model.
 - [Agent preset registry](../../preset/agent-preset-registry/README.md) — how an agent's composed preset is resolved.
@@ -144,16 +153,30 @@ The instruction adds about 140 tokens and the `submit_ruling` schema about 150 t
 
 Each consultation is a new Session with its own prefix, so it neither reuses nor invalidates the worker's cached prefix.
 
+### Appeal decision
+
+#### What the model sees
+
+When the user decides an appeal, the worker Session receives one user message whose source is `architecture`. Upheld: `The user upheld Ruling <id> on your appeal <appeal>. Keep following its constraints.` Overturned: the Ruling's constraints no longer bind and the worker should consult again before relying on the revised design. Exception: `limited to: <scope>`, with the constraints still binding outside it. A user note follows as `The user notes: <note>`. `adjudicationText()` builds the text.
+
+#### Token effect
+
+Each decision adds one message of about 30 to 60 tokens plus the note to the worker Session.
+
+#### KV Cache effect
+
+The message is steered into the worker's inbox and appends after the reusable prefix; it does not change earlier requests.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 
 These limits describe what the package does not protect or provide yet.
 
-- **Shell writes are not guarded** — `bash`, `pwsh`, terminals, and `run_code` can still change a protected file; the git check script proposed in the Agent Note is the planned backstop.
+- **Shell writes are not guarded** — `bash`, `pwsh`, terminals, and `run_code` can still change a protected file; [`scripts/check-architecture.sh`](scripts/check-architecture.sh) refuses such changes at commit or in CI once the user wires it in.
 - **Only built-in file tools are recognized** — the guard knows the argument names of `write`, `edit`, and `str_replace_editor`; another plugin's file tool is not checked.
 - **The index is in memory** — nothing rebuilds it automatically when a source changes outside `edit()`, and it is lost on restart.
-- **No dashboard, Ruling records, or appeals** — a Ruling exists only in the worker's tool result; the dashboard, `.architecture/rulings/` records, and appeals are proposed in the Agent Note and not implemented.
+- **Records are local files** — Ruling, appeal, and acceptance records are JSON files under the local directory in the primary worktree; whether they are tracked is the user's choice, and nothing merges records written in different clones.
 - **Experimental prototype with no stability promise** — its contracts can change freely while it incubates.
 
 <a id="dev-note"></a>
@@ -164,6 +187,6 @@ These limits describe what the package does not protect or provide yet.
 
 This Dev Note is working context for maintainers and is explicitly non-authoritative.
 
-This package carries milestones 1 and 2 of the architecture agent. The next milestone is the dashboard with Ruling records and appeals.
+This package carries milestones 1 to 3 of the architecture agent. Background proposals and an Activity view are the remaining proposed work.
 
 </details>

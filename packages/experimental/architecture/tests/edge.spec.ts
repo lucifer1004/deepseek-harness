@@ -109,6 +109,32 @@ describe('GitFiles', () => {
     await expect(files.list(root, ['*'], undefined)).rejects.toThrow(/ended mid-entry/)
   })
 
+  it('reports the status of modified, untracked, and ignored paths, and rejects a failed or truncated status', async () => {
+    const repo = await scratch()
+    git(repo, 'init', '-q', '-b', 'main')
+    await writeFile(join(repo, '.gitignore'), 'ign.md\n')
+    await writeFile(join(repo, 'a.md'), 'a')
+    await writeFile(join(repo, 'b.md'), 'b')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', 'init')
+    await writeFile(join(repo, 'a.md'), 'changed')
+    await writeFile(join(repo, 'new.md'), 'n')
+    await writeFile(join(repo, 'ign.md'), 'i')
+    const files = await gitFiles()
+    expect(Object.fromEntries(await files.status(repo, ['a.md', 'b.md', 'new.md', 'ign.md'], undefined)))
+      .toEqual({ 'a.md': 'modified', 'new.md': 'untracked', 'ign.md': 'ignored' })
+    expect((await files.status(repo, [], undefined)).size).toBe(0)
+    await expect(files.status(await scratch(), ['a.md'], undefined)).rejects.toThrow(/git status failed/)
+
+    const fake = join(repo, 'fake-git')
+    await writeFile(fake, '#!/bin/sh\nprintf \' M a.md\\0partial\'\n', { mode: 0o755 })
+    const ctx = new Context()
+    cleanups.push(() => ctx.fiber.dispose())
+    await ctx.plugin(LocalSubprocessRuntime)
+    const truncated = new GitFiles(ctx.subprocess, fake, { timeoutMs: 10_000, outputMaxBytes: 1_000 })
+    await expect(truncated.status(repo, ['a.md'], undefined)).rejects.toThrow(/status output ended mid-entry/)
+  })
+
   it('reports a timeout', async () => {
     const repo = await scratch()
     git(repo, 'init', '-q', '-b', 'main')

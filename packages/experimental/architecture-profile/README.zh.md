@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-experimental-architecture-profile` 用一层把[架构 agent](../architecture/README.zh.md) 加入 Web profile。worker agent 获得 `consult_architect`，preset 选择器获得 **Architect**：这种会话读取代码与网络，与你讨论架构记录，并且只编辑该记录。每个会话中的内置文件工具都不再能写架构来源。主分支由你在 profile patch 中指定；bundle 不会猜测它。
+`dsh-experimental-architecture-profile` 用一层把[架构 agent](../architecture/README.zh.md) 加入 Web profile。worker agent 获得 `consult_architect` 与 `appeal_ruling`，侧边栏获得**架构**仪表盘，preset 选择器获得 **Architect**：这种会话读取代码与网络，与你讨论架构记录，并且只编辑该记录。每个会话中的内置文件工具都不再能写架构来源。主分支由你在 profile patch 中指定；bundle 不会猜测它。
 
 ## 目录
 
@@ -39,7 +39,7 @@ kind: "package-bundle"
 
 ### 你会得到什么
 
-这一层插入 `architecture` 服务、worker 的 `consult_architect` 工具和 `architect` preset。该 preset 挂载 persona、agent 指令、`read`/`glob`/`grep`、`web_search`/`web_fetch`、会话查询工具、`ask_user_question`、`todo_write` 以及三个架构师工具。它的 `write` 与 `edit` 工具仍不可用，因为服务的 `architectTools` 列表不包含它们。
+这一层插入 `architecture` 服务、worker 的 `consult_architect` 与 `appeal_ruling` 工具、[架构 Remote](../api-architecture/README.zh.md) 与[仪表盘](../client-ui-architecture/README.zh.md)，以及 `architect` preset。该 preset 挂载 persona、agent 指令、`read`/`glob`/`grep`、`web_search`/`web_fetch`、会话查询工具、`ask_user_question`、`todo_write` 以及三个架构师工具。它的 `write` 与 `edit` 工具仍不可用，因为服务的 `architectTools` 列表不包含它们。
 
 -----
 
@@ -53,7 +53,7 @@ kind: "package-bundle"
 
 | 文件 | 职责 |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | 服务、worker 工具与 `architect` preset 行 |
+| [`cordis.patch.yml`](cordis.patch.yml) | 服务、worker 工具、仪表盘 Remote 与 UI，以及 `architect` preset 行 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；patch 是运行时内容 |
 | — | 本包不发布 runtime invariant companion：本包只携带静态 profile patch。 |
 
@@ -93,7 +93,7 @@ patch 不变时 preset 的组合固定，因此其前缀稳定。
 
 - **仅按需启用**——没有已发布的 profile 启用本 bundle。
 - **需要 Web profile**——这些行遵循 `dsh-web-app` 的按 preset 工具组合；其他 profile 未经测试。
-- **worker preset 不变**——`consult_architect` 是 host 行；限制自身工具的 preset 必须显式允许它。
+- **worker preset 不变**——`consult_architect` 与 `appeal_ruling` 是 host 行；限制自身工具的 preset 必须显式允许它们。
 
 <a id="dev-note"></a>
 ### 开发备注

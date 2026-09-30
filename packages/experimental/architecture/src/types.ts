@@ -1,8 +1,7 @@
 /** Public types of the workspace architecture sources, section index, and edit rule. */
 
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Plugin configuration for `ctx.architecture`. */
 export interface Config {
@@ -150,7 +149,7 @@ export interface UnresolvedPoint {
   /** The open question or unsupported judgment. */
   readonly statement: string
   /** Why the point is unresolved; set by the host when it demotes a constraint. */
-  readonly reason?: string
+  readonly reason?: string | undefined
 }
 
 /** An architect's answer to one consultation after host validation. */
@@ -183,20 +182,119 @@ export type CitationFailure =
   | { readonly kind: 'unknown-section'; readonly cite: string }
   | { readonly kind: 'uncommitted'; readonly cite: string; readonly mainBranch: string }
 
-/** One worker consultation. */
-export interface ConsultRequest {
-  /** The consulting worker; its Session owns the architect child and supplies the working directory. */
-  readonly worker: Agent
-  /** The question, in the worker's words. */
-  readonly question: string
-  /** Paths or components the question concerns. */
-  readonly scope: readonly string[]
-  /** Cancels the consultation, such as the consulting tool call's signal. */
-  readonly signal: AbortSignal
-}
-
-/** Outcome of {@link ConsultRequest}. */
+/** Outcome of one consultation. */
 export type ConsultResult =
-  | { readonly kind: 'ruling'; readonly ruling: Ruling; readonly session: SessionId }
+  | { readonly kind: 'ruling'; readonly ruling: Ruling; readonly session: SessionId; readonly revision: string }
   | { readonly kind: 'timeout'; readonly id: RulingId; readonly session: SessionId }
   | { readonly kind: 'no-submission'; readonly id: RulingId; readonly session: SessionId }
+
+/** Opaque identity of one appeal. */
+export type AppealId = Branded<'ArchitectureAppealId'>
+
+/** Lifecycle of a recorded Ruling. */
+export type RulingStatus = 'issued' | 'appealed' | 'upheld' | 'overturned' | 'excepted'
+
+/**
+ * A Ruling as the dashboard records it, written after the consulting tool
+ * result is committed to the worker's log. The worker's log stays the
+ * authority for what the worker received; this record is a rebuildable copy.
+ */
+export interface RulingRecord {
+  /** Record format version; readers reject another value. */
+  readonly version: 1
+  /** The Ruling the worker received. */
+  readonly ruling: Ruling
+  /** Worker Session that consulted. */
+  readonly workerSession: SessionId
+  /** Architect Session that answered. */
+  readonly architectSession: SessionId
+  /** Index revision the Ruling was validated against. */
+  readonly revision: string
+  /** Issue time, Unix milliseconds. */
+  readonly issuedAt: number
+  /** Current status. */
+  readonly status: RulingStatus
+}
+
+/** How the user resolved an appeal. */
+export type Adjudication =
+  | { readonly kind: 'uphold'; readonly note?: string | undefined }
+  | { readonly kind: 'overturn'; readonly note?: string | undefined }
+  | { readonly kind: 'exception'; readonly scope: string; readonly note?: string | undefined }
+
+/** A worker's appeal against one Ruling, and the user's decision when made. */
+export interface AppealRecord {
+  /** Record format version; readers reject another value. */
+  readonly version: 1
+  /** Appeal identity. */
+  readonly id: AppealId
+  /** Ruling the worker appeals. */
+  readonly rulingId: RulingId
+  /** Worker Session that appealed and receives the decision. */
+  readonly workerSession: SessionId
+  /** The worker's reason. */
+  readonly reason: string
+  /** Evidence the worker cites, such as paths, failing tests, or quotes. */
+  readonly evidence: readonly string[]
+  /** Filing time, Unix milliseconds. */
+  readonly filedAt: number
+  /** The user's decision; absent while pending. */
+  readonly adjudication?: Adjudication | undefined
+  /** Decision time, Unix milliseconds. */
+  readonly decidedAt?: number | undefined
+  /** Whether the decision reached the worker's Session. */
+  readonly delivered: boolean
+}
+
+/** The user's acceptance of an uncommitted section, which makes that exact content citable. */
+export interface Acceptance {
+  /** Source file of the section. */
+  readonly path: SourcePath
+  /** Anchor of the section. */
+  readonly anchor: string
+  /** Accepted content hash; any other content of the section is not accepted. */
+  readonly hash: SectionHash
+  /** Acceptance time, Unix milliseconds. */
+  readonly acceptedAt: number
+}
+
+/** Git state of one architecture file in the primary worktree. */
+export type GitFileStatus = 'committed' | 'modified' | 'untracked' | 'ignored'
+
+/** One file under the local architecture directory. */
+export interface LocalEntry {
+  /** Repository-relative path. */
+  readonly path: string
+  /** Git state in the primary worktree. */
+  readonly status: GitFileStatus
+}
+
+/** Everything the dashboard shows for one repository, read at one moment. */
+export interface ArchitectureSnapshot {
+  /** Canonical primary-worktree root. */
+  readonly root: string
+  /** Configured main branch. */
+  readonly mainBranch: string
+  /** Configured manifest path, relative to the repository root. */
+  readonly manifestPath: string
+  /** Configured local architecture directory, relative to the repository root. */
+  readonly localDirectory: string
+  /** Whether the repository has a manifest. */
+  readonly hasManifest: boolean
+  /** Current index revision; changes whenever indexed content changes. */
+  readonly revision: string
+  /** The index, empty without a manifest. */
+  readonly index: ArchitectureIndex
+  /** Git state of each indexed source. */
+  readonly sourceStatus: Readonly<Record<string, GitFileStatus>>
+  /** Recorded Rulings, newest first, each with whether a cited section changed since issue. */
+  readonly rulings: ReadonlyArray<RulingRecord & { readonly stale: boolean }>
+  /** Appeals, pending first, then newest first. */
+  readonly appeals: readonly AppealRecord[]
+  /** Accepted sections. */
+  readonly acceptances: readonly Acceptance[]
+  /** Files under the local directory other than records this service writes. */
+  readonly localEntries: readonly LocalEntry[]
+  /** Record files that could not be read, with the local-directory path and the reason. */
+  readonly problems: ReadonlyArray<{ readonly file: string; readonly message: string }>
+}

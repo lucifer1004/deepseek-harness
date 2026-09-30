@@ -38,7 +38,9 @@
   "dependencies": {
     "@deepseek-ai/dsh-agent-instructions": "workspace:*",
     "@deepseek-ai/dsh-agent-preset": "workspace:*",
+    "@deepseek-ai/dsh-experimental-api-architecture": "workspace:*",
     "@deepseek-ai/dsh-experimental-architecture": "workspace:*",
+    "@deepseek-ai/dsh-experimental-client-ui-architecture": "workspace:*",
     "@deepseek-ai/dsh-experimental-tool-architecture": "workspace:*",
     "@deepseek-ai/dsh-persona": "workspace:*",
     "@deepseek-ai/dsh-tool-ask-user": "workspace:*",
@@ -58,6 +60,8 @@
     "@deepseek-ai/dsh-agent-loop": "workspace:*",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
+    "@deepseek-ai/dsh-experimental-api-architecture": "workspace:*",
+    "@deepseek-ai/dsh-experimental-client-ui-architecture": "workspace:*",
     "@deepseek-ai/dsh-fs-local": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
@@ -66,6 +70,7 @@
     "@deepseek-ai/dsh-subprocess-local": "workspace:*",
     "@deepseek-ai/dsh-user-questions": "workspace:*",
     "@deepseek-ai/dsh-web": "workspace:*",
+    "@deepseek-ai/dsh-workspace": "workspace:*",
     "js-yaml": "^4.3.2"
   }
 }

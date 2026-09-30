@@ -20,6 +20,9 @@ export interface GitLimits {
   readonly outputMaxBytes: number
 }
 
+/** Git state of a path that differs from its committed version. */
+export type ChangedStatus = 'modified' | 'untracked' | 'ignored'
+
 /** Runs git queries for one checkout. */
 export class GitFiles {
   /**
@@ -97,5 +100,31 @@ export class GitFiles {
     // or, when a file of that name is in the work tree, "exists on disk, but not in" it.
     if (/invalid object name|does not exist in|exists on disk, but not in/.test(result.stderr)) return undefined
     throw new Error(`git cat-file failed in ${root}: ${result.stderr.trim()}`)
+  }
+
+  /**
+   * Report the git state of paths under the given pathspecs, including ignored
+   * and untracked files. A path absent from the report and present on disk is
+   * committed and unmodified.
+   * @param root - checkout root.
+   * @param paths - repository-relative POSIX paths or directories.
+   * @param signal - cancels the command.
+   * @returns the state of every reported path.
+   * @throws when git fails, times out, is aborted, prints more than the output cap, or ends mid-entry.
+   */
+  async status(root: string, paths: readonly string[], signal: AbortSignal | undefined): Promise<ReadonlyMap<string, ChangedStatus>> {
+    const states = new Map<string, ChangedStatus>()
+    if (paths.length === 0) return states
+    const result = await this.run([
+      'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all', '--no-renames', '--', ...paths.map(path => `:(literal)${path}`),
+    ], root, signal)
+    if (result.code !== 0) throw new Error(`git status failed in ${root}: ${result.stderr.trim()}`)
+    if (result.stdout.length > 0 && !result.stdout.endsWith('\0')) throw new Error(`git status output ended mid-entry in ${root}`)
+    for (const entry of result.stdout.split('\0')) {
+      if (entry === '') continue
+      const code = entry.slice(0, 2)
+      states.set(entry.slice(3), code === '??' ? 'untracked' : code === '!!' ? 'ignored' : 'modified')
+    }
+    return states
   }
 }

@@ -1,0 +1,317 @@
+/* The first-level page frame shared with the Plugins and Automation tasks pages. */
+.page {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.pageScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  --dsh-scrollbar-width: 9px;
+  --dsh-scrollbar-thumb-border: 2px;
+}
+
+.pageContent {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 clamp(24px, 4vw, 48px) 48px;
+}
+
+.pageHeading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 28px;
+  margin-bottom: 16px;
+}
+
+/* macOS hiddenInset titlebar: the same 76px total top offset as the sibling pages. */
+:global([data-platform='darwin']) .pageHeading {
+  padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px));
+}
+
+.pageHeading h1 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+}
+
+.workspace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.workspace select {
+  max-width: 240px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font: inherit;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+
+.inlineTag {
+  flex: none;
+}
+
+.panel {
+  margin-top: 16px;
+}
+
+.empty {
+  margin: 48px 0;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+  font-size: 13px;
+}
+
+.notice {
+  margin: 8px 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.spinner {
+  animation: spinner-rotate 0.9s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+.meta {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+
+.path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+}
+
+/* Index list beside the section reader. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.split:has(.reader) {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+.list {
+  min-width: 0;
+}
+
+.source {
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+}
+
+.source summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.source summary:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sections {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.sections li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sectionButton {
+  flex: 1;
+  min-width: 0;
+  padding-block: 4px;
+  padding-inline-end: 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: none;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sectionButton:hover,
+.sectionButton[aria-pressed='true'] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.reader {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  min-width: 0;
+  max-height: calc(100vh - 160px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+}
+
+.readerHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.readerFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.document {
+  min-width: 0;
+}
+
+/* Ruling and appeal cards. */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  padding: 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+}
+
+.card p {
+  margin: 4px 0;
+}
+
+.cardHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.question {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.subheading {
+  margin: 12px 0 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.constraints {
+  margin: 0;
+  padding-inline-start: 20px;
+  font-size: 13px;
+}
+
+.cites {
+  display: block;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
+.decision {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+}

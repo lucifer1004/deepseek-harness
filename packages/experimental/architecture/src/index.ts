@@ -5,13 +5,16 @@
  * @module @deepseek-ai/dsh-experimental-architecture
  */
 
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -21,6 +24,7 @@ import { canonicalizeForWrite, isProtected, writeCall, writeTarget, type Protect
 import { buildIndex } from './index-builder.ts'
 import { parseManifest } from './manifest.ts'
 import { locateCheckout } from './repository.ts'
+import { ACCEPTANCES_FILE, APPEALS_DIRECTORY, isMissing, RecordStore, RULINGS_DIRECTORY } from './records.ts'
 import { validateRuling } from './ruling.ts'
 import { indexSections, sectionText } from './sections.ts'
 import type {
@@ -29,10 +33,19 @@ import type {
   ArchitectureIndex,
   ArchitectureManifest,
   Config,
-  ConsultRequest,
+  Acceptance,
+  Adjudication,
+  AppealId,
+  AppealRecord,
+  ArchitectureSnapshot,
   ConsultResult,
   EditRefusal,
+  GitFileStatus,
   IndexedSection,
+  LocalEntry,
+  RulingId,
+  RulingRecord,
+  RulingStatus,
   SourcePath,
 } from './types.ts'
 
@@ -41,6 +54,7 @@ export { ManifestError } from './manifest.ts'
 export { githubSlug, hashSection, indexSections, sectionText } from './sections.ts'
 export { describeCitationFailure, parseCite } from './citations.ts'
 export { CONSULTATION_INSTRUCTION, restrictToArchitectTools, SUBMIT_RULING_TOOL } from './consultation.ts'
+export { ACCEPTANCES_FILE, APPEALS_DIRECTORY, RULINGS_DIRECTORY } from './records.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -52,10 +66,93 @@ declare module '@deepseek-ai/cordis' {
 const LIST_OUTPUT_MAX_BYTES = 32 * 1024 * 1024
 
 /** A loaded manifest and the index built from it for one repository root. */
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * The architecture state of a repository changed: its index, a Ruling,
+     * an appeal, or an acceptance. Emitted after the change is written.
+     * @param root - canonical primary-worktree root of the repository.
+     * @mode emit
+     */
+    'architecture/changed'(root: string): void
+  }
+}
+
+/** An adjudication message delivered to a worker Session. */
+export interface ArchitectureMessageSource {
+  readonly kind: 'architecture'
+  /** Appeal whose decision the message carries. */
+  readonly appealId: AppealId
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    architecture: ArchitectureMessageSource
+  }
+}
+
 interface RootState {
   readonly manifest: ArchitectureManifest | undefined
   readonly index: ArchitectureIndex | undefined
   readonly protectedPaths: ProtectedPaths
+}
+
+/** One worker consultation. */
+export interface ConsultRequest {
+  /** The consulting worker; its Session owns the architect child and supplies the working directory. */
+  readonly worker: Agent
+  /** The question, in the worker's words. */
+  readonly question: string
+  /** Paths or components the question concerns. */
+  readonly scope: readonly string[]
+  /** Cancels the consultation, such as the consulting tool call's signal. */
+  readonly signal: AbortSignal
+}
+
+/** Revision of a repository without a manifest. */
+const EMPTY_REVISION = 'empty'
+const RULINGS_DIRECTORY_PREFIX = `${RULINGS_DIRECTORY}/`
+const APPEALS_DIRECTORY_PREFIX = `${APPEALS_DIRECTORY}/`
+const ACCEPTANCES_FILE_NAME = ACCEPTANCES_FILE
+
+/** Ruling status after each kind of adjudication. */
+const STATUS_AFTER: Readonly<Record<Adjudication['kind'], RulingStatus>> = {
+  uphold: 'upheld',
+  overturn: 'overturned',
+  exception: 'excepted',
+}
+
+/**
+ * Hash the indexed content of a repository: sources, anchors, and section hashes.
+ * @param index - an index.
+ * @returns a 16-hex-digit revision that changes whenever any indexed section changes.
+ */
+export function indexRevision(index: ArchitectureIndex): string {
+  const hash = createHash('sha256')
+  for (const section of index.sections) hash.update(`${section.path}\0${section.anchor}\0${section.hash}\n`)
+  return hash.digest('hex').slice(0, 16)
+}
+
+function acceptanceKey(section: { readonly path: string; readonly anchor: string; readonly hash: string }): string {
+  return `${section.path}#${section.anchor}@${section.hash}`
+}
+
+/**
+ * The message a worker receives when the user decides its appeal.
+ * @param appeal - the appeal.
+ * @param adjudication - the decision.
+ * @returns model-facing text.
+ */
+export function adjudicationText(appeal: AppealRecord, adjudication: Adjudication): string {
+  const note = adjudication.note === undefined ? '' : ` The user notes: ${adjudication.note}`
+  switch (adjudication.kind) {
+    case 'uphold':
+      return `The user upheld Ruling ${appeal.rulingId} on your appeal ${appeal.id}. Keep following its constraints.${note}`
+    case 'overturn':
+      return `The user overturned Ruling ${appeal.rulingId} on your appeal ${appeal.id}. Its constraints no longer bind you; the user will revise the architecture record. Consult the architect again before relying on the revised design.${note}`
+    case 'exception':
+      return `The user granted an exception to Ruling ${appeal.rulingId} on your appeal ${appeal.id}, limited to: ${adjudication.scope}. Outside that scope its constraints still bind you.${note}`
+  }
 }
 
 function relativeInside(root: string, target: string): string | undefined {
@@ -104,6 +201,9 @@ export class ArchitectureService extends Service {
   private readonly config: Config
   private readonly roots = new Map<string, RootState>()
   private readonly architectTools: ReadonlySet<string>
+  private readonly revisions = new Map<string, string>()
+  /** Serializes read-modify-write of each repository's records. */
+  private readonly writes = new Map<string, Promise<unknown>>()
   private files: GitFiles | undefined
 
   constructor(ctx: Context, config: Config) {
@@ -118,6 +218,13 @@ export class ArchitectureService extends Service {
     // The service registers `submit_ruling` on its own consultation agents.
     this.architectTools = new Set([...config.architectTools, SUBMIT_RULING_TOOL])
     ctx.effect(() => ctx.tools.guard(exec => this.guardReason(exec)), 'architecture: edit-rule tool guard')
+    // A decision made while the worker's agent was not live reaches it when the agent is next created.
+    ctx.on('agent/created', ({ agent }) => {
+      void this.deliverPending(agent).catch((error: unknown) => {
+        ctx.logger.warn(`architecture: delivering appeal decisions to ${agent.id} failed: ${String(error)}`)
+      })
+      return undefined
+    })
   }
 
   /** Resolve git once; the service cannot list sources without it. */
@@ -151,6 +258,10 @@ export class ArchitectureService extends Service {
     }
     if (!existsSync(manifestFile)) {
       this.roots.set(root, { manifest: undefined, index: undefined, protectedPaths: protectedBase })
+      if (this.revisions.get(root) !== EMPTY_REVISION) {
+        this.revisions.set(root, EMPTY_REVISION)
+        this.changed(root)
+      }
       return undefined
     }
     const manifest = parseManifest(await readFile(manifestFile, 'utf8'), this.config.manifestPath)
@@ -165,6 +276,11 @@ export class ArchitectureService extends Service {
     const protectedFiles = new Set(protectedBase.files)
     for (const source of index.sources) protectedFiles.add(canonicalizeForWrite(join(root, source)))
     this.roots.set(root, { manifest, index, protectedPaths: { ...protectedBase, files: protectedFiles } })
+    const revision = indexRevision(index)
+    if (this.revisions.get(root) !== revision) {
+      this.revisions.set(root, revision)
+      this.changed(root)
+    }
     return index
   }
 
@@ -295,14 +411,183 @@ export class ArchitectureService extends Service {
     })
     if (outcome.kind !== 'submitted') return { kind: outcome.kind, id: outcome.id, session: outcome.session }
     const files = this.requireFiles()
+    const accepted = await this.acceptedKeys(index.root)
     const ruling = await validateRuling(
       { id: outcome.id, question: request.question, scope: request.scope },
       outcome.submission,
       index,
       this.config.mainBranch,
       path => files.committed(index.root, this.config.mainBranch, path, request.signal),
+      section => accepted.has(acceptanceKey(section)),
     )
-    return { kind: 'ruling', ruling, session: outcome.session }
+    return { kind: 'ruling', ruling, session: outcome.session, revision: indexRevision(index) }
+  }
+
+  /**
+   * Record a Ruling for the dashboard. Call after the worker's log committed
+   * the consulting tool result, so the record never names a Ruling the worker
+   * did not receive.
+   * @param cwd - the worker Session's directory.
+   * @param record - Ruling, Sessions, and index revision; status starts at `issued`.
+   */
+  async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status'>): Promise<void> {
+    const root = this.primaryRoot(cwd)
+    await this.serialize(root, () => this.store(root).writeRuling({ version: 1, ...record, issuedAt: Date.now(), status: 'issued' }))
+    this.changed(root)
+  }
+
+  /**
+   * File a worker's appeal against a recorded Ruling. The Ruling stays binding
+   * while the appeal is pending.
+   * @param request - Session directory, Ruling, appellant Session, reason, and evidence.
+   * @returns the appeal record.
+   * @throws when the repository has no record of the Ruling, or the Ruling is not the appellant's.
+   */
+  async appeal(request: {
+    readonly cwd: string
+    readonly rulingId: RulingId
+    readonly workerSession: SessionId
+    readonly reason: string
+    readonly evidence: readonly string[]
+  }): Promise<AppealRecord> {
+    const root = this.primaryRoot(request.cwd)
+    const record = await this.serialize(root, async () => {
+      const store = this.store(root)
+      const ruling = (await store.read()).rulings.get(request.rulingId)
+      if (ruling === undefined) throw new Error(`architecture: no recorded Ruling ${request.rulingId}`)
+      if (ruling.workerSession !== request.workerSession) {
+        throw new Error(`architecture: Ruling ${request.rulingId} was issued to another Session`)
+      }
+      const appeal: AppealRecord = {
+        version: 1,
+        id: brandString<AppealId>(`appeal-${randomUUID()}`),
+        rulingId: request.rulingId,
+        workerSession: request.workerSession,
+        reason: request.reason,
+        evidence: request.evidence,
+        filedAt: Date.now(),
+        delivered: false,
+      }
+      await store.writeAppeal(appeal)
+      await store.writeRuling({ ...ruling, status: 'appealed' })
+      return appeal
+    })
+    this.changed(root)
+    return record
+  }
+
+  /**
+   * Record the user's decision on a pending appeal and deliver it to the
+   * worker's Session when that Session's agent is live. An undelivered
+   * decision is delivered when the Session's agent is next created.
+   * @param cwd - any directory inside the repository.
+   * @param appealId - the pending appeal.
+   * @param adjudication - uphold, overturn, or a scoped exception.
+   * @returns the decided appeal record.
+   * @throws when the appeal does not exist or is already decided.
+   */
+  async adjudicate(cwd: string, appealId: AppealId, adjudication: Adjudication): Promise<AppealRecord> {
+    const root = this.primaryRoot(cwd)
+    const decided = await this.serialize(root, async () => {
+      const store = this.store(root)
+      const records = await store.read()
+      const appeal = records.appeals.get(appealId)
+      if (appeal === undefined) throw new Error(`architecture: no appeal ${appealId}`)
+      if (appeal.adjudication !== undefined) throw new Error(`architecture: appeal ${appealId} is already decided`)
+      const next: AppealRecord = { ...appeal, adjudication, decidedAt: Date.now() }
+      await store.writeAppeal(next)
+      const ruling = records.rulings.get(appeal.rulingId)
+      if (ruling !== undefined) await store.writeRuling({ ...ruling, status: STATUS_AFTER[adjudication.kind] })
+      return next
+    })
+    this.changed(root)
+    await this.deliver(root, decided)
+    return decided
+  }
+
+  /**
+   * Deliver every decided, undelivered appeal of a Session whose agent is now live.
+   * @param agent - the live agent.
+   */
+  async deliverPending(agent: Agent): Promise<void> {
+    const cwd = agent.session.header.cwd
+    const checkout = cwd === undefined ? undefined : locateCheckout(cwd)
+    if (checkout === undefined) return
+    const records = await this.store(checkout.primaryRoot).read()
+    for (const appeal of records.appeals.values()) {
+      if (appeal.workerSession === agent.id && appeal.adjudication !== undefined && !appeal.delivered) {
+        await this.deliver(checkout.primaryRoot, appeal)
+      }
+    }
+  }
+
+  /**
+   * Accept a section's current content so Rulings may cite it before it is
+   * committed on `mainBranch`. Accepting again replaces the earlier hash.
+   * @param cwd - any directory inside the repository.
+   * @param path - source path of the section.
+   * @param anchor - section anchor.
+   * @param hash - the content hash the user reviewed; refused when the section has changed since.
+   * @returns the recorded acceptance.
+   * @throws when the section is not indexed or its hash differs from `hash`.
+   */
+  async accept(cwd: string, path: string, anchor: string, hash: string): Promise<Acceptance> {
+    const root = this.primaryRoot(cwd)
+    const index = await this.rebuild(root)
+    const section = index?.sections.find(entry => entry.path === path && entry.anchor === anchor)
+    if (section === undefined) throw new Error(`architecture: ${path}#${anchor} is not an indexed section`)
+    if (section.hash !== hash) throw new Error(`architecture: ${path}#${anchor} changed since it was reviewed; its hash is ${section.hash}`)
+    const acceptance: Acceptance = { path: section.path, anchor: section.anchor, hash: section.hash, acceptedAt: Date.now() }
+    await this.serialize(root, async () => {
+      const store = this.store(root)
+      const kept = (await store.read()).acceptances.filter(entry => entry.path !== path || entry.anchor !== anchor)
+      await store.writeAcceptances([...kept, acceptance])
+    })
+    this.changed(root)
+    return acceptance
+  }
+
+  /**
+   * Read the whole dashboard state of a repository. Rebuilds the index first.
+   * @param cwd - any directory inside the repository.
+   * @param signal - cancels the rebuild and git reads.
+   * @returns the snapshot.
+   * @throws for an invalid manifest, a directory outside git, or a git failure.
+   */
+  async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot> {
+    const root = this.primaryRoot(cwd)
+    const built = await this.rebuild(root, signal)
+    const index = built ?? { root, sources: [], sections: [], diagnostics: [] }
+    const revision = built === undefined ? EMPTY_REVISION : indexRevision(built)
+    const localEntries = await this.localEntries(root)
+    const records = await this.store(root).read()
+    const status = await this.requireFiles().status(root, [...index.sources, ...localEntries], signal)
+    const gitStatus = (path: string): GitFileStatus => status.get(path) ?? 'committed'
+    const current = new Map(index.sections.map(section => [`${section.path}#${section.anchor}`, section.hash]))
+    const rulings = [...records.rulings.values()]
+      .map(record => ({
+        ...record,
+        stale: record.ruling.constraints.some(constraint =>
+          constraint.citations.some(citation => current.get(`${citation.path}#${citation.anchor}`) !== citation.hash)),
+      }))
+      .sort((a, b) => b.issuedAt - a.issuedAt)
+    const appeals = [...records.appeals.values()].sort((a, b) =>
+      Number(a.adjudication !== undefined) - Number(b.adjudication !== undefined) || b.filedAt - a.filedAt)
+    return {
+      root,
+      mainBranch: this.config.mainBranch,
+      manifestPath: this.config.manifestPath,
+      localDirectory: this.config.localDirectory,
+      hasManifest: this.roots.get(root)?.manifest !== undefined,
+      revision,
+      index,
+      sourceStatus: Object.fromEntries(index.sources.map(source => [source, gitStatus(source)])),
+      rulings,
+      appeals,
+      acceptances: records.acceptances,
+      localEntries: localEntries.map((path): LocalEntry => ({ path, status: gitStatus(path) })),
+      problems: records.problems.map(problem => ({ file: posix.join(this.config.localDirectory, problem.file), message: problem.message })),
+    }
   }
 
   /**
@@ -323,6 +608,62 @@ export class ArchitectureService extends Service {
       return { kind: 'not-protected', path }
     }
     return undefined
+  }
+
+  private primaryRoot(cwd: string): string {
+    const checkout = locateCheckout(cwd)
+    if (checkout === undefined) throw new Error(`architecture: ${cwd} is not inside a git checkout`)
+    return checkout.primaryRoot
+  }
+
+  private store(root: string): RecordStore {
+    return new RecordStore(join(root, this.config.localDirectory))
+  }
+
+  private async serialize<T>(root: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.writes.get(root) ?? Promise.resolve()
+    const next = previous.then(operation, operation)
+    this.writes.set(root, next.catch(() => undefined))
+    return await next
+  }
+
+  private changed(root: string): void {
+    this.ctx.emit('architecture/changed', root)
+  }
+
+  private async acceptedKeys(root: string): Promise<ReadonlySet<string>> {
+    return new Set((await this.store(root).read()).acceptances.map(acceptanceKey))
+  }
+
+  /** Files under the local directory other than the records this service owns, as repository-relative paths. */
+  private async localEntries(root: string): Promise<string[]> {
+    const base = join(root, this.config.localDirectory)
+    let names: string[]
+    try {
+      names = await readdir(base, { recursive: true })
+    } catch (error: unknown) {
+      if (isMissing(error)) return []
+      throw error
+    }
+    const owned = [RULINGS_DIRECTORY_PREFIX, APPEALS_DIRECTORY_PREFIX]
+    const entries: string[] = []
+    for (const name of names.map(entry => entry.split(sep).join(posix.sep)).sort()) {
+      if (name === ACCEPTANCES_FILE_NAME || owned.some(prefix => name.startsWith(prefix))) continue
+      if (!(await stat(join(base, name))).isFile()) continue
+      entries.push(posix.join(this.config.localDirectory, name))
+    }
+    return entries
+  }
+
+  private async deliver(root: string, appeal: AppealRecord): Promise<void> {
+    const agent = this.ctx.get('agents')?.get(appeal.workerSession)
+    if (agent === undefined || appeal.adjudication === undefined || appeal.delivered) return
+    agent.steer(createUserMessage({
+      content: [{ type: 'text', text: adjudicationText(appeal, appeal.adjudication) }],
+      source: { kind: 'architecture', appealId: appeal.id },
+    }))
+    await this.serialize(root, () => this.store(root).writeAppeal({ ...appeal, delivered: true }))
+    this.changed(root)
   }
 
   private requireFiles(): GitFiles {

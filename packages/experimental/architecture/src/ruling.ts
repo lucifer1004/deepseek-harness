@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-experimental-architecture/ruling
  */
 
-import { describeCitationFailure, verifyCitations, type ReadCommitted } from './citations.ts'
+import { describeCitationFailure, verifyCitations, type IsAccepted, type ReadCommitted } from './citations.ts'
 import type { ArchitectureIndex, Citation, Constraint, ProposedConstraint, Ruling, RulingId, UnresolvedPoint } from './types.ts'
 
 /** An architect's submission as received from the consultation tool. */
@@ -36,6 +36,7 @@ export interface RulingRequest {
  * @param index - current index of the primary worktree.
  * @param mainBranch - branch whose committed text is authoritative.
  * @param readCommitted - reads a source as committed on `mainBranch`.
+ * @param isAccepted - whether the user accepted a section's current content.
  * @returns the Ruling with only verified constraints.
  */
 export async function validateRuling(
@@ -44,6 +45,7 @@ export async function validateRuling(
   index: ArchitectureIndex,
   mainBranch: string,
   readCommitted: ReadCommitted,
+  isAccepted: IsAccepted,
 ): Promise<Ruling> {
   // One committed read per source file for the whole Ruling.
   const reads = new Map<string, Promise<string | undefined>>()
@@ -62,7 +64,7 @@ export async function validateRuling(
       unresolved.push({ statement: proposed.statement, reason: 'no citation to an architecture section' })
       continue
     }
-    const checks = await verifyCitations(index, proposed.cites, mainBranch, readOnce)
+    const checks = await verifyCitations(index, proposed.cites, mainBranch, readOnce, isAccepted)
     const citations: Citation[] = []
     const failures: string[] = []
     for (const check of checks) {

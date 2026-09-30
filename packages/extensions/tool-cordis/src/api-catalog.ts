@@ -410,6 +410,132 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'architecture',
+    summary: 'Workspace architecture sources, index, and edit rule.',
+    description: 'Workspace architecture sources, index, and edit rule.',
+    methods: [
+      {
+        signature: 'async rebuild(cwd: string, signal?: AbortSignal): Promise<ArchitectureIndex | undefined>',
+        description: 'Load the manifest and rebuild the index of the checkout containing `cwd`. Rulings and the tool guard read the primary worktree, so the index is always built from the primary worktree of that repository.',
+        parameters: [{ name: 'cwd', description: 'absolute directory inside the checkout.' }, { name: 'signal', description: 'cancels the rebuild.' }],
+        returns: 'the rebuilt index, or undefined when the repository has no manifest.',
+        throws: ['{ManifestError} for a manifest that violates the manifest schema.', 'when `cwd` is not inside a git checkout, or git fails.'],
+      },
+      {
+        signature: 'index(cwd: string): ArchitectureIndex | undefined',
+        description: 'The last index built for the repository containing `cwd`.',
+        parameters: [{ name: 'cwd', description: 'absolute directory inside the checkout.' }],
+        returns: 'the index, or undefined before the first rebuild or without a manifest.',
+      },
+      {
+        signature: 'isProtected(path: string): boolean',
+        description: 'Whether an absolute path is protected in the repository containing it, by the last rebuild of that repository. The manifest and the local directory are protected even before a rebuild.',
+        parameters: [{ name: 'path', description: 'absolute path; need not exist.' }],
+        returns: 'true when only {@link edit} may write the path.',
+      },
+      {
+        signature: 'async edit(request: ArchitectureEditRequest): Promise<ArchitectureEditResult>',
+        description: 'Write one architecture file, or replace one of its indexed sections, under the main-branch edit rule. The target must be the manifest, an indexed source, or a path under the local directory, and the checkout must be the primary worktree on `mainBranch`. A section edit reads the current file, refuses when the section is missing or its hash differs from `expectedHash`, and replaces the section\'s lines. The write replaces the file atomically and rebuilds the index.',
+        parameters: [{ name: 'request', description: 'Session directory, target, optional section, and content.' }],
+        returns: 'the written path, or the refusal.',
+      },
+      {
+        signature: 'async readSection( cwd: string, path: string, anchor: string, signal?: AbortSignal, ): Promise<{ section: IndexedSection; text: string } | undefined>',
+        description: 'Read one indexed section as it is in the primary worktree.',
+        parameters: [{ name: 'cwd', description: 'absolute directory inside the checkout.' }, { name: 'path', description: 'source path from the index.' }, { name: 'anchor', description: 'section anchor within that source.' }, { name: 'signal', description: 'cancels the read.' }],
+        returns: 'the section and its text, or undefined when the index has no such section.',
+      },
+      {
+        signature: 'async consult(request: ConsultRequest): Promise<ConsultResult>',
+        description: 'Ask the architect one question on behalf of a worker. The service rebuilds the index of the worker\'s repository, runs an architect agent as a hidden child of the worker\'s Session, and validates its submission into a Ruling whose every constraint cites a section committed on `mainBranch`.',
+        parameters: [{ name: 'request', description: 'worker, question, scope, and cancellation.' }],
+        returns: 'the Ruling, or an unresolved result naming why there is none.',
+        throws: ['when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.'],
+      },
+      {
+        signature: 'async recordRuling(cwd: string, record: Omit<RulingRecord, \'version\' | \'issuedAt\' | \'status\'>): Promise<void>',
+        description: 'Record a Ruling for the dashboard. Call after the worker\'s log committed the consulting tool result, so the record never names a Ruling the worker did not receive.',
+        parameters: [{ name: 'cwd', description: 'the worker Session\'s directory.' }, { name: 'record', description: 'Ruling, Sessions, and index revision; status starts at `issued`.' }],
+      },
+      {
+        signature: 'async appeal(request: { readonly cwd: string readonly rulingId: RulingId readonly workerSession: SessionId readonly reason: string readonly evidence: readonly string[] }): Promise<AppealRecord>',
+        description: 'File a worker\'s appeal against a recorded Ruling. The Ruling stays binding while the appeal is pending.',
+        parameters: [{ name: 'request', description: 'Session directory, Ruling, appellant Session, reason, and evidence.' }],
+        returns: 'the appeal record.',
+        throws: ['when the repository has no record of the Ruling, or the Ruling is not the appellant\'s.'],
+      },
+      {
+        signature: 'async adjudicate(cwd: string, appealId: AppealId, adjudication: Adjudication): Promise<AppealRecord>',
+        description: 'Record the user\'s decision on a pending appeal and deliver it to the worker\'s Session when that Session\'s agent is live. An undelivered decision is delivered when the Session\'s agent is next created.',
+        parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }, { name: 'appealId', description: 'the pending appeal.' }, { name: 'adjudication', description: 'uphold, overturn, or a scoped exception.' }],
+        returns: 'the decided appeal record.',
+        throws: ['when the appeal does not exist or is already decided.'],
+      },
+      {
+        signature: 'async deliverPending(agent: Agent): Promise<void>',
+        description: 'Deliver every decided, undelivered appeal of a Session whose agent is now live.',
+        parameters: [{ name: 'agent', description: 'the live agent.' }],
+      },
+      {
+        signature: 'async accept(cwd: string, path: string, anchor: string, hash: string): Promise<Acceptance>',
+        description: 'Accept a section\'s current content so Rulings may cite it before it is committed on `mainBranch`. Accepting again replaces the earlier hash.',
+        parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }, { name: 'path', description: 'source path of the section.' }, { name: 'anchor', description: 'section anchor.' }, { name: 'hash', description: 'the content hash the user reviewed; refused when the section has changed since.' }],
+        returns: 'the recorded acceptance.',
+        throws: ['when the section is not indexed or its hash differs from `hash`.'],
+      },
+      {
+        signature: 'async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>',
+        description: 'Read the whole dashboard state of a repository. Rebuilds the index first.',
+        parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }, { name: 'signal', description: 'cancels the rebuild and git reads.' }],
+        returns: 'the snapshot.',
+        throws: ['for an invalid manifest, a directory outside git, or a git failure.'],
+      },
+      {
+        signature: 'checkEdit(cwd: string, path: string): EditRefusal | undefined',
+        description: 'Evaluate the edit rule without writing.',
+        parameters: [{ name: 'cwd', description: 'Session directory.' }, { name: 'path', description: 'target, relative to the repository root or absolute.' }],
+        returns: 'the refusal, or undefined when {@link edit} would write.',
+      },
+    ],
+  },
+  {
+    key: 'architectureController',
+    summary: 'The `architecture` Remote namespace over `ctx.architecture`, addressed by Workspace.',
+    description: 'The `architecture` Remote namespace over `ctx.architecture`, addressed by Workspace.',
+    methods: [
+      {
+        signature: '@Remote async snapshot(workspaceId: WorkspaceId, signal: AbortSignal): Promise<ArchitectureSnapshot>',
+        description: 'Read the dashboard state of a Workspace, rebuilding its index.',
+        parameters: [{ name: 'workspaceId', description: 'Workspace whose repository is shown.' }, { name: 'signal', description: 'Client cancellation.' }],
+        returns: 'the complete snapshot.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *follow(workspaceId: WorkspaceId, signal: AbortSignal): AsyncIterable<ArchitectureSnapshot>',
+        description: 'Follow the dashboard state of a Workspace: yield a snapshot now and after each `architecture/changed` notification for its repository. Notifications that arrive while a snapshot is being read coalesce into one more read.',
+        parameters: [{ name: 'workspaceId', description: 'Workspace whose repository is shown.' }, { name: 'signal', description: 'Client observation lifetime.' }],
+        returns: 'complete snapshots, oldest first.',
+      },
+      {
+        signature: '@Remote async section(request: ArchitectureSectionRequest, signal: AbortSignal): Promise<ArchitectureSectionValue>',
+        description: 'Read one indexed section\'s text from the primary worktree.',
+        parameters: [{ name: 'request', description: 'Workspace, path, and anchor.' }, { name: 'signal', description: 'Client cancellation.' }],
+        returns: 'the section\'s hash and text.',
+      },
+      {
+        signature: '@Remote async accept(request: ArchitectureAcceptRequest): Promise<Acceptance>',
+        description: 'Accept a section\'s reviewed content so Rulings may cite it before it is committed.',
+        parameters: [{ name: 'request', description: 'Workspace, section, and the reviewed hash.' }],
+        returns: 'the recorded acceptance.',
+      },
+      {
+        signature: '@Remote async adjudicate(request: ArchitectureAdjudicateRequest): Promise<AppealRecord>',
+        description: 'Decide a pending appeal and deliver the decision to the worker Session.',
+        parameters: [{ name: 'request', description: 'Workspace, appeal, and decision.' }],
+        returns: 'the decided appeal.',
+      },
+    ],
+  },
+  {
     key: 'attachments',
     summary: 'Immutable binary attachment service.',
     description: 'Immutable binary attachment service. Implementations validate bytes before publishing a reference.',
@@ -3926,6 +4052,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'req', description: 'pending approval request.' }],
   },
   {
+    name: 'architecture/changed',
+    mode: 'emit',
+    signature: '\'architecture/changed\'(root: string): void',
+    summary: 'The architecture state of a repository changed: its index, a Ruling, an appeal, or an acceptance.',
+    description: 'The architecture state of a repository changed: its index, a Ruling, an appeal, or an acceptance. Emitted after the change is written.',
+    parameters: [{ name: 'root', description: 'canonical primary-worktree root of the repository.' }],
+  },
+  {
     name: 'authorization/settled',
     mode: 'emit',
     signature: '\'authorization/settled\'(key: CredentialKey, settlement: AuthorizationSettlement): void',
@@ -4410,6 +4544,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'Acceptance',
+    declaration: 'export interface Acceptance {\n    readonly path: SourcePath;\n    readonly anchor: string;\n    readonly hash: SectionHash;\n    readonly acceptedAt: number;\n}',
+  },
+  {
     name: 'AccountBonusBatch',
     declaration: 'export interface AccountBonusBatch {\n    readonly accountId: AccountUserId;\n    readonly bonuses: readonly AccountBonusNotification[];\n}',
   },
@@ -4452,6 +4590,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
+  },
+  {
+    name: 'Adjudication',
+    declaration: 'export type Adjudication = {\n    readonly kind: \'uphold\';\n    readonly note?: string | undefined;\n} | {\n    readonly kind: \'overturn\';\n    readonly note?: string | undefined;\n} | {\n    readonly kind: \'exception\';\n    readonly scope: string;\n    readonly note?: string | undefined;\n};',
   },
   {
     name: 'AdmittedPromptContentPart',
@@ -4530,6 +4672,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ApiSessionAgentResult = {\n    readonly agent: Agent;\n} | {\n    readonly error: ApiSessionAgentError;\n};',
   },
   {
+    name: 'AppealId',
+    declaration: 'export type AppealId = Branded<\'ArchitectureAppealId\'>;',
+  },
+  {
+    name: 'AppealRecord',
+    declaration: 'export interface AppealRecord {\n    readonly version: 1;\n    readonly id: AppealId;\n    readonly rulingId: RulingId;\n    readonly workerSession: SessionId;\n    readonly reason: string;\n    readonly evidence: readonly string[];\n    readonly filedAt: number;\n    readonly adjudication?: Adjudication | undefined;\n    readonly decidedAt?: number | undefined;\n    readonly delivered: boolean;\n}',
+  },
+  {
     name: 'ApprovalOutcome',
     declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
   },
@@ -4544,6 +4694,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ApprovalRequestEvent',
     declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'ArchitectureAcceptRequest',
+    declaration: 'export interface ArchitectureAcceptRequest extends ArchitectureSectionRequest {\n    readonly hash: string;\n}',
+  },
+  {
+    name: 'ArchitectureAdjudicateRequest',
+    declaration: 'export interface ArchitectureAdjudicateRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly appealId: AppealId;\n    readonly adjudication: Adjudication;\n}',
+  },
+  {
+    name: 'ArchitectureEditRequest',
+    declaration: 'export interface ArchitectureEditRequest {\n    readonly cwd: string;\n    readonly path: string;\n    readonly anchor?: string | undefined;\n    readonly expectedHash?: string | undefined;\n    readonly content: string;\n    readonly signal?: AbortSignal | undefined;\n}',
+  },
+  {
+    name: 'ArchitectureEditResult',
+    declaration: 'export type ArchitectureEditResult = {\n    readonly kind: \'written\';\n    readonly path: string;\n} | {\n    readonly kind: \'refused\';\n    readonly refusal: EditRefusal;\n};',
+  },
+  {
+    name: 'ArchitectureIndex',
+    declaration: 'export interface ArchitectureIndex {\n    readonly root: string;\n    readonly sources: readonly SourcePath[];\n    readonly sections: readonly IndexedSection[];\n    readonly diagnostics: readonly IndexDiagnostic[];\n}',
+  },
+  {
+    name: 'ArchitectureSectionRequest',
+    declaration: 'export interface ArchitectureSectionRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly anchor: string;\n}',
+  },
+  {
+    name: 'ArchitectureSectionValue',
+    declaration: 'export interface ArchitectureSectionValue {\n    readonly path: string;\n    readonly anchor: string;\n    readonly hash: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'ArchitectureSnapshot',
+    declaration: 'export interface ArchitectureSnapshot {\n    readonly root: string;\n    readonly mainBranch: string;\n    readonly manifestPath: string;\n    readonly localDirectory: string;\n    readonly hasManifest: boolean;\n    readonly revision: string;\n    readonly index: ArchitectureIndex;\n    readonly sourceStatus: Readonly<Record<string, GitFileStatus>>;\n    readonly rulings: ReadonlyArray<RulingRecord & {\n        readonly stale: boolean;\n    }>;\n    readonly appeals: readonly AppealRecord[];\n    readonly acceptances: readonly Acceptance[];\n    readonly localEntries: readonly LocalEntry[];\n    readonly problems: ReadonlyArray<{\n        readonly file: string;\n        readonly message: string;\n    }>;\n}',
   },
   {
     name: 'ArchiveSessionOptions',
@@ -4718,6 +4900,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ChangeResult {\n    changed: boolean;\n    application: \'applied\' | \'restart-required\' | \'overridden\' | \'failed\' | \'cancelled\';\n    stage: \'install\' | \'enable\' | \'remove\';\n    target: string;\n    enabled?: boolean;\n    error?: ManagementError;\n    warnings?: string[];\n    packageResult?: PackageResult;\n    bundle?: string;\n    pendingBuilds?: string[];\n    approvedBuilds?: string[];\n    registries?: Registry[];\n    failedAt?: \'registry\' | \'spec-host\';\n}',
   },
   {
+    name: 'Citation',
+    declaration: 'export interface Citation {\n    readonly path: SourcePath;\n    readonly anchor: string;\n    readonly hash: SectionHash;\n}',
+  },
+  {
     name: 'ClientArtifactBaseline',
     declaration: 'export interface ClientArtifactBaseline {\n    readonly path: string;\n    readonly mtimeMs: number;\n    readonly ctimeMs: number;\n    readonly size: number;\n}',
   },
@@ -4852,6 +5038,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ConnectionTrustRequest',
     declaration: 'export interface ConnectionTrustRequest {\n    readonly headers: Headers | Readonly<Record<string, string | readonly string[] | undefined>>;\n}',
+  },
+  {
+    name: 'Constraint',
+    declaration: 'export interface Constraint {\n    readonly statement: string;\n    readonly citations: readonly Citation[];\n}',
+  },
+  {
+    name: 'ConsultRequest',
+    declaration: 'export interface ConsultRequest {\n    readonly worker: Agent;\n    readonly question: string;\n    readonly scope: readonly string[];\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'ConsultResult',
+    declaration: 'export type ConsultResult = {\n    readonly kind: \'ruling\';\n    readonly ruling: Ruling;\n    readonly session: SessionId;\n    readonly revision: string;\n} | {\n    readonly kind: \'timeout\';\n    readonly id: RulingId;\n    readonly session: SessionId;\n} | {\n    readonly kind: \'no-submission\';\n    readonly id: RulingId;\n    readonly session: SessionId;\n};',
   },
   {
     name: 'ContentBlockMap',
@@ -5142,6 +5340,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
+    name: 'EditRefusal',
+    declaration: 'export type EditRefusal = {\n    readonly kind: \'not-repository\';\n    readonly cwd: string;\n} | {\n    readonly kind: \'linked-worktree\';\n    readonly root: string;\n    readonly primaryRoot: string;\n} | {\n    readonly kind: \'wrong-branch\';\n    readonly branch: string | undefined;\n    readonly mainBranch: string;\n} | {\n    readonly kind: \'not-protected\';\n    readonly path: string;\n} | {\n    readonly kind: \'unknown-section\';\n    readonly path: string;\n    readonly anchor: string;\n} | {\n    readonly kind: \'stale-section\';\n    readonly path: string;\n    readonly anchor: string;\n    readonly hash: SectionHash;\n};',
+  },
+  {
     name: 'EncodedFileAttachment',
     declaration: 'export interface EncodedFileAttachment {\n    data: string;\n    name?: string;\n}',
   },
@@ -5274,6 +5476,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GenericResultView {\n    card: \'generic\';\n    title?: string;\n    content?: ContentBlock[];\n}',
   },
   {
+    name: 'GitFileStatus',
+    declaration: 'export type GitFileStatus = \'committed\' | \'modified\' | \'untracked\' | \'ignored\';',
+  },
+  {
     name: 'GoalActivation',
     declaration: 'export type GoalActivation = \'armed\' | \'disarmed\';',
   },
@@ -5352,6 +5558,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'IncompatiblePlugin',
     declaration: 'export interface IncompatiblePlugin {\n    name: string;\n    version: string;\n    runtimeVersion: string;\n    peers: Record<string, string>;\n}',
+  },
+  {
+    name: 'IndexDiagnostic',
+    declaration: 'export interface IndexDiagnostic {\n    readonly path: string;\n    readonly message: string;\n}',
+  },
+  {
+    name: 'IndexedSection',
+    declaration: 'export interface IndexedSection {\n    readonly path: SourcePath;\n    readonly anchor: string;\n    readonly title: string;\n    readonly level: number;\n    readonly line: number;\n    readonly endLine: number;\n    readonly hash: SectionHash;\n}',
   },
   {
     name: 'IndexInjection',
@@ -5644,6 +5858,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LocalAtInput',
     declaration: 'export interface LocalAtInput {\n    readonly date: string;\n    readonly time: string;\n    readonly time_zone: string;\n}',
+  },
+  {
+    name: 'LocalEntry',
+    declaration: 'export interface LocalEntry {\n    readonly path: string;\n    readonly status: GitFileStatus;\n}',
   },
   {
     name: 'LocalizedText',
@@ -6266,6 +6484,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RpcId = Branded<\'rpc-id\'>;',
   },
   {
+    name: 'Ruling',
+    declaration: 'export interface Ruling {\n    readonly id: RulingId;\n    readonly question: string;\n    readonly scope: readonly string[];\n    readonly summary: string;\n    readonly constraints: readonly Constraint[];\n    readonly unresolved: readonly UnresolvedPoint[];\n}',
+  },
+  {
+    name: 'RulingId',
+    declaration: 'export type RulingId = Branded<\'ArchitectureRulingId\'>;',
+  },
+  {
+    name: 'RulingRecord',
+    declaration: 'export interface RulingRecord {\n    readonly version: 1;\n    readonly ruling: Ruling;\n    readonly workerSession: SessionId;\n    readonly architectSession: SessionId;\n    readonly revision: string;\n    readonly issuedAt: number;\n    readonly status: RulingStatus;\n}',
+  },
+  {
+    name: 'RulingStatus',
+    declaration: 'export type RulingStatus = \'issued\' | \'appealed\' | \'upheld\' | \'overturned\' | \'excepted\';',
+  },
+  {
     name: 'RunnerFailureRule',
     declaration: 'export interface RunnerFailureRule {\n    allowedExitCodes?: readonly number[];\n    fatalSignatures: readonly string[];\n    informationalLines?: readonly string[];\n}',
   },
@@ -6408,6 +6642,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SearchResultView',
     declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
+    name: 'SectionHash',
+    declaration: 'export type SectionHash = Branded<\'ArchitectureSectionHash\'>;',
   },
   {
     name: 'SendTeamMessageRequest',
@@ -7104,6 +7342,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillViewOptions',
     declaration: 'export interface SkillViewOptions extends SkillLookupOptions {\n    readonly scope?: ScopeKey | undefined;\n}',
+  },
+  {
+    name: 'SourcePath',
+    declaration: 'export type SourcePath = Branded<\'ArchitectureSourcePath\'>;',
   },
   {
     name: 'SpawnTeammateRequest',
@@ -7828,6 +8070,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
+  },
+  {
+    name: 'UnresolvedPoint',
+    declaration: 'export interface UnresolvedPoint {\n    readonly statement: string;\n    readonly reason?: string | undefined;\n}',
   },
   {
     name: 'UpdateTeamTaskRequest',

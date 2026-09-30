@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { Service } from '@deepseek-ai/cordis'
 import * as yaml from 'js-yaml'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -21,6 +22,9 @@ import AgentPresetRow from '@deepseek-ai/dsh-agent-preset'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import ArchitectureService from '@deepseek-ai/dsh-experimental-architecture'
+import ArchitectureController from '@deepseek-ai/dsh-experimental-api-architecture'
+import * as ArchitectureUi from '@deepseek-ai/dsh-experimental-client-ui-architecture'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import * as WorkerTools from '@deepseek-ai/dsh-experimental-tool-architecture'
 import * as ArchitectTools from '@deepseek-ai/dsh-experimental-tool-architecture/architect'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -69,7 +73,22 @@ const MODULES = new Map<string, unknown>([
   ['@deepseek-ai/dsh-experimental-architecture', ArchitectureService],
   ['@deepseek-ai/dsh-experimental-tool-architecture', WorkerTools],
   ['@deepseek-ai/dsh-experimental-tool-architecture/architect', ArchitectTools],
+  ['@deepseek-ai/dsh-experimental-api-architecture', ArchitectureController],
+  ['@deepseek-ai/dsh-experimental-client-ui-architecture', ArchitectureUi],
 ])
+
+const WORKSPACE = 'ws-1' as WorkspaceId
+
+/** The Web host's Workspace registry, reduced to the lookup the dashboard Remote reads. */
+class Workspaces extends Service {
+  constructor(ctx: Context, private readonly path: string) {
+    super(ctx, 'workspaceRegistry')
+  }
+
+  get(id: WorkspaceId): { readonly path: string } | undefined {
+    return id === WORKSPACE ? { path: this.path } : undefined
+  }
+}
 
 function moduleLoader(): ModuleLoaderV2 {
   return {
@@ -115,6 +134,9 @@ describe('architecture profile bundle composition', () => {
     await ctx.plugin(UserQuestionService)
     await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions'), compression: 'none' })
     await ctx.plugin(SqliteSessionQueryEngine, { path: join(root, 'query.db') })
+    // The Gateway is not under test; the dashboard Remote only needs its service key.
+    ctx.provide('typert', {})
+    await ctx.plugin((inner: Context) => { new Workspaces(inner, repo) })
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(join(root, 'cordis.yml')).href, patches: patch } })
     await ctx.loader.await()
     const unloaded = [...ctx.loader.entries()]
@@ -143,5 +165,11 @@ describe('architecture profile bundle composition', () => {
     await worker.agent.whenIdle()
     expect(adapter.requests[1]?.tools?.map(tool => tool.name)).toContain('consult_architect')
     expect(adapter.requests[1]?.tools?.map(tool => tool.name)).not.toContain('architecture_edit')
+    expect(adapter.requests[1]?.tools?.map(tool => tool.name)).toContain('appeal_ruling')
+
+    // The dashboard Remote reads the Workspace's repository through the composed service.
+    const snapshot = await ctx.architectureController.snapshot(WORKSPACE, new AbortController().signal)
+    expect(snapshot).toMatchObject({ mainBranch: 'trunk', hasManifest: true, rulings: [] })
+    expect(snapshot.index.sources).toEqual(['design/architecture.md'])
   })
 })

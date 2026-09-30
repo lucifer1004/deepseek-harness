@@ -1,8 +1,9 @@
 # Experimental architecture agent profile layer. Apply after dsh-web-app, whose
 # per-preset tool composition this layer follows: the host service and worker
-# tool are host rows, and the architect preset mounts its own read, search, web,
-# and architecture tools. Set `mainBranch` on the `architecture` row in the
-# profile patch; the service fails to load without it.
+# tool are host rows, the dashboard is a Remote row plus a browser UI row, and
+# the architect preset mounts its own read, search, web, and architecture tools.
+# Set `mainBranch` on the `architecture` row in the profile patch; the service
+# fails to load without it.
 
 - insert:
     - id: architecture
@@ -31,6 +32,12 @@
 
     - id: tool-architecture
       name: '@deepseek-ai/dsh-experimental-tool-architecture'
+
+    - id: api-architecture
+      name: '@deepseek-ai/dsh-experimental-api-architecture'
+
+    - id: ui-architecture
+      name: '@deepseek-ai/dsh-experimental-client-ui-architecture'
 
     - id: preset-architect
       name: '@deepseek-ai/dsh-agent-preset'

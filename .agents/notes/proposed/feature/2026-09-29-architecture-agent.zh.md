@@ -115,6 +115,8 @@ Ruling 作为 `consult_architect` 的工具结果到达 worker 模型，并作�
 
 第二个里程碑（咨询与 architect preset）又回答了四个问题。`tools.restrict({ allow })` 会拒绝 agent 继承视图中不存在的名字，因此咨询从已配置的 `architectTools` 中只取已挂载 preset 实际提供的工具作为 allow-list。在本机上，子进程运行时收集的 stdout 会丢失大输出的尾部（本仓库完整的 `git ls-files` 在 850 KB 中只返回了 280 KB 到 850 KB 不等），因此来源列举把 manifest glob 作为 `:(glob)` pathspec 传给 git，并拒绝不以 NUL 结尾的列举。picomatch glob 数组中以 `!` 开头的条目会匹配所有其他路径，因此 manifest 另设 `exclude` 列表并拒绝否定形式的来源。咨询 Ruling 目前还不携带索引 revision；仪表盘里程碑会把它与 Ruling 记录一起加入。
 
+第三个里程碑（带记录与申诉的仪表盘）又回答了四个问题。Remote 转发事件白名单属于发布包，实验性包不得扩展它，因此架构 Remote 提供 `follow` 流，在每次 `architecture/changed` 事件后产出完整快照。裁定现在携带索引修订；引用章节的哈希与当前索引不同时，仪表盘将该裁定标记为过期。包 bin 保留给 `dsh` 启动器，因此提交与 CI 检查以 POSIX shell 脚本发布，它只读取 manifest 的块列表，遇到其他语法即失败。活动视图与后台提案仍处于拟议阶段；“讨论”开启架构 Session 但不预填内容。
+
 ## 考虑过的替代方案
 
 **用一个长期存在的架构师会话回答所有咨询。** 它能保持一段连续的对话，但上下文会无限增长，上下文压缩会丢掉旧的推理，并发咨询还要排在同一个收件箱后面。基于仓库来源启动全新实例，能让每次回答都反映当前状态并且可以并发，连续性由来源文件承载。

@@ -104,8 +104,8 @@ describe('ArchitectureService.consult', () => {
     for (const citation of citations) expect(citation.hash).toMatch(/^[0-9a-f]{64}$/)
     expect(result.ruling.unresolved.map(point => [point.statement, point.reason])).toEqual([
       ['Should caching be allowed?', undefined],
-      ['Follow the new doc.', '"design/new.md#new" differs from the section committed on main, or is not committed there'],
-      ['Follow the draft.', '"design/arch.md#draft" differs from the section committed on main, or is not committed there'],
+      ['Follow the new doc.', '"design/new.md#new" differs from the section committed on main, or is not committed there, and the user has not accepted it'],
+      ['Follow the draft.', '"design/arch.md#draft" differs from the section committed on main, or is not committed there, and the user has not accepted it'],
       ['Obey a missing section.', '"design/arch.md#missing" names no indexed architecture section'],
       ['Obey a malformed cite.', '"design/arch.md" is not a path#anchor reference'],
       ['Obey nothing.', 'no citation to an architecture section'],
