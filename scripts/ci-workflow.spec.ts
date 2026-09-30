@@ -700,6 +700,22 @@ describe('bubblewrap preparation script', () => {
   })
 })
 
+describe('jj preparation script', () => {
+  it('pins one jj release by digest, and the Linux coverage and snapshot jobs run it', () => {
+    const script = readFileSync(resolve(root, 'scripts/prepare-ci-jj.sh'), 'utf8')
+    expect(script).toMatch(/^readonly JJ_SHA256='[0-9a-f]{64}'$/mu)
+    expect(/^readonly JJ_URL="([^"]+)"$/mu.exec(script)?.[1]).toBe(
+      'https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz',
+    )
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    for (const name of ['node-24-coverage', 'node-24-consumers']) {
+      const job = workflowJob(workflow, name)
+      if (!Array.isArray(job.steps)) throw new TypeError(`${name} must define steps`)
+      expect(job.steps.filter(isRecord).some(step => typeof step.run === 'string' && step.run.includes('bash scripts/prepare-ci-jj.sh &'))).toBe(true)
+    }
+  })
+})
+
 describe('DeepSeek e2e workflow', () => {
   it('prepares bubblewrap from the pinned payload without a package transaction', () => {
     const workflow = loadWorkflow('.github/workflows/e2e.yml')

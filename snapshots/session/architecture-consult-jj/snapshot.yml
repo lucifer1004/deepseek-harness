@@ -1,0 +1,14 @@
+version: 1
+scenario: architecture-consult-jj
+profile: headless
+composition: architecture-consult
+recording: authored
+header:
+  class: architecture-consult
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+platform: posix
+requires: [jj]
+workspace:
+  setup: jj-main
+  vcsMetadata: [.jj]

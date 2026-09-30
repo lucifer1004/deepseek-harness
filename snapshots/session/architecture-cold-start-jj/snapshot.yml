@@ -1,0 +1,13 @@
+version: 1
+scenario: architecture-cold-start-jj
+profile: headless
+composition: architecture-cold-start
+recording: authored
+header:
+  class: architecture-cold-start
+platform: posix
+requires: [jj]
+workspace:
+  setup: jj-main
+  final: true
+  vcsMetadata: [.jj]

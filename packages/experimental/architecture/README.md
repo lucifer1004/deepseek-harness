@@ -73,7 +73,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Check commits and CI
 
-The package ships [`scripts/check-architecture.sh`](scripts/check-architecture.sh), a POSIX shell script that uses only git. Run `check-architecture.sh staged` from a pre-commit hook to refuse a commit that changes the manifest or a source outside the primary worktree on the manifest's `mainBranch`. Run `check-architecture.sh range origin/main HEAD` in CI on other branches to refuse a range that changes them. `--main-branch <branch>` names the branch for a manifest that declares none; with neither, `staged` refuses every such change. `--manifest <path>` reads another manifest path. It exits 1 on a violation and 2 on a usage error or a manifest it cannot read; it reads only block lists under `sources:` and `exclude:` and a plain `mainBranch:` value.
+The package ships [`scripts/check-architecture.sh`](scripts/check-architecture.sh), a POSIX shell script that uses only git or jj. In git, run `check-architecture.sh staged` from a pre-commit hook to refuse a commit that changes the manifest or a source outside the primary worktree on the manifest's `mainBranch`. Run `check-architecture.sh range origin/main HEAD` in CI on other branches to refuse a range that changes them. `--main-branch <branch>` names the branch for a manifest that declares none; with neither, `staged` refuses every such change. `--manifest <path>` reads another manifest path. In a jj repository, colocated or not, run `check-architecture.sh working` before `jj git push` to refuse working-copy changes to the manifest or a source outside the primary workspace or away from the `mainBranch` bookmark and its child, and `check-architecture.sh range main @-` in CI, where both arguments are revsets. It exits 1 on a violation and 2 on a usage error or a manifest it cannot read; it reads only block lists under `sources:` and `exclude:` and a plain `mainBranch:` value.
 
 -----
 
@@ -177,7 +177,6 @@ The message is steered into the worker's inbox and appends after the reusable pr
 These limits describe what the package does not protect or provide yet.
 
 - **Shell writes are not guarded** — `bash`, `pwsh`, terminals, and `run_code` can still change a protected file; [`scripts/check-architecture.sh`](scripts/check-architecture.sh) refuses such changes at commit or in CI once the user wires it in.
-- **The check script reads git only** — in a non-colocated jj repository [`scripts/check-architecture.sh`](scripts/check-architecture.sh) exits 2 because there is no git checkout; a colocated repository's `git` view works for `range` in CI but not for `staged`, since jj does not use the git index.
 - **Only built-in file tools are recognized** — the guard knows the argument names of `write`, `edit`, and `str_replace_editor`; another plugin's file tool is not checked.
 - **The index is in memory** — nothing rebuilds it automatically when a source changes outside `edit()`, and it is lost on restart.
 - **Records are local files** — Ruling, appeal, and acceptance records are JSON files under the local directory in the primary worktree; whether they are tracked is the user's choice, and nothing merges records written in different clones.

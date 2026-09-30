@@ -8,7 +8,7 @@
 
 仓库的 `architecture.yml` 以 glob 列出 Markdown 来源，并可附带 `exclude` 列表。服务将每个来源的标题索引为章节。`IndexedSection` 携带路径、GitHub 风格锚点、标题、层级、行范围和内容哈希。`ArchitectureIndex` 包含主工作树中每个来源的全部章节，以及无法读取的来源的诊断信息。索引修订对每个章节的路径、锚点和哈希求哈希，因此索引内容一旦变化，修订就会变化。
 
-架构来源只能在主工作树中配置的主分支上修改。全局工具守卫拒绝其他所有写入者；架构师的 `architecture_edit` 工具检查同一规则，`ArchitectureEditRequest` 可以按架构师读取时的哈希替换一个章节。`EditRefusal` 指明被违反的条件。
+架构来源只能在主工作树中配置的主分支上修改。在 Jujutsu 仓库中（共置与否均可），主分支是一个书签，主 checkout 是持有仓库的 workspace，书签指向工作副本或其父提交时即视为在该分支上。`CheckoutState` 记录 checkout 的 `VcsKind`、根目录以及它是否为主 checkout。没有 manifest 的仓库可以写入第一份 manifest，只要它声明当前所在的分支。全局工具守卫拒绝其他所有写入者，包括会创建匹配来源 glob 之文件的写入者；架构师的 `architecture_edit` 工具检查同一规则，`ArchitectureEditRequest` 可以按架构师读取时的哈希替换一个章节。`EditRefusal` 指明被违反的条件。
 
 ## 咨询与裁定
 
@@ -50,6 +50,22 @@ Workspace architecture sources, index, and edit rule.
 
 ```ts cordis-catalog
 /**
+ * The version control of the checkout containing a directory, and the branches it is on now.
+ * @param cwd - absolute directory inside the checkout.
+ * @param signal - cancels a jj query.
+ * @returns the system, whether the checkout is the primary one, and its current branch or bookmark names.
+ * @throws when `cwd` is not inside a usable git or jj checkout, or version control fails.
+ */
+async currentBranches(cwd: string, signal?: AbortSignal): Promise<{ vcs: VcsKind; isPrimary: boolean; branches: readonly string[] }>
+
+/**
+ * The checkout containing a directory, when the service can read its version control.
+ * @param cwd - absolute directory.
+ * @returns the checkout, or undefined outside git and jj or when that system's executable is not installed.
+ */
+checkout(cwd: string): CheckoutState | undefined
+
+/**
  * Load the manifest and rebuild the index of the checkout containing `cwd`.
  * Rulings and the tool guard read the primary worktree, so the index is
  * always built from the primary worktree of that repository.
@@ -57,7 +73,7 @@ Workspace architecture sources, index, and edit rule.
  * @param signal - cancels the rebuild.
  * @returns the rebuilt index, or undefined when the repository has no manifest.
  * @throws {ManifestError} for a manifest that violates the manifest schema.
- * @throws when `cwd` is not inside a git checkout, or git fails.
+ * @throws when `cwd` is not inside a git or jj checkout, or version control fails.
  */
 async rebuild(cwd: string, signal?: AbortSignal): Promise<ArchitectureIndex | undefined>
 
@@ -163,18 +179,21 @@ async accept(cwd: string, path: string, anchor: string, hash: string): Promise<A
  * Read the whole dashboard state of a repository. Rebuilds the index first.
  * @param cwd - any directory inside the repository.
  * @param signal - cancels the rebuild and git reads.
- * @returns the snapshot.
- * @throws for an invalid manifest, a directory outside git, or a git failure.
+ * @returns the snapshot; outside a usable git or jj checkout, an empty snapshot with `unsupported` set.
+ * @throws for an invalid manifest or a version-control failure.
  */
 async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>
 
 /**
- * Evaluate the edit rule without writing.
+ * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
+ * manifest: `content` written to the manifest path that declares the branch the checkout is on.
  * @param cwd - Session directory.
  * @param path - target, relative to the repository root or absolute.
+ * @param content - the content {@link edit} would write; only a first manifest reads it.
+ * @param signal - cancels a jj branch query.
  * @returns the refusal, or undefined when {@link edit} would write.
  */
-checkEdit(cwd: string, path: string): EditRefusal | undefined
+async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined>
 ```
 
 Types: [Agent](core.zh.md) · [SessionId](core.zh.md)

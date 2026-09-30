@@ -38,6 +38,9 @@ export interface SnapshotReplayManifest {
 /** Host requirements for a scenario's process-level controller. */
 export type SnapshotPlatform = 'posix' | 'pwsh'
 
+/** Executable a scenario may require on PATH. */
+export type SnapshotTool = 'jj'
+
 /** Deployment permission preset selected before the scenario starts. */
 export type SnapshotPermission = 'read-only' | 'workspace-write' | 'danger-full-access'
 
@@ -45,6 +48,8 @@ export type SnapshotPermission = 'read-only' | 'workspace-write' | 'danger-full-
 export interface SnapshotWorkspaceManifest {
   /** Named setup needed for state Git cannot represent directly. */
   setup?: string
+  /** Version-control metadata directories at the workspace root that the setup creates and workspace comparison omits. */
+  vcsMetadata?: Array<'.git' | '.jj'>
   /** Whether `workspace.expected/` owns the complete final world state. */
   final?: true
   /** Place the generated cwd outside automatically writable temporary roots. */
@@ -110,6 +115,8 @@ export interface SnapshotManifest {
   replay?: SnapshotReplayManifest
   /** Optional host requirement; portable scenarios omit it. */
   platform?: SnapshotPlatform
+  /** Executables the scenario needs on PATH; a host without one skips the scenario, and CI provides each. */
+  requires?: SnapshotTool[]
   /** Explicit process fallback permission preset. */
   permission?: SnapshotPermission
   /** Test-only string environment additions needed by the declared composition. */
@@ -217,6 +224,7 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       'header',
       'replay',
       'platform',
+      'requires',
       'permission',
       'environment',
       'workspace',
@@ -318,17 +326,23 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
     let workspace: SnapshotWorkspaceManifest | undefined
     if (root.workspace !== undefined) {
       const value = record(root.workspace, 'manifest.workspace')
-      exactKeys(value, ['setup', 'final', 'parent'], 'manifest.workspace')
+      exactKeys(value, ['setup', 'final', 'parent', 'vcsMetadata'], 'manifest.workspace')
       if (value.final !== undefined && value.final !== true) {
         throw new Error('manifest.workspace.final must equal true when present')
       }
       if (value.parent !== undefined && value.parent !== 'outside-temp') {
         throw new Error('manifest.workspace.parent must equal outside-temp')
       }
+      const metadata = value.vcsMetadata
+      if (metadata !== undefined && (!Array.isArray(metadata) || metadata.length === 0
+        || metadata.some(entry => entry !== '.git' && entry !== '.jj') || new Set(metadata).size !== metadata.length)) {
+        throw new Error('manifest.workspace.vcsMetadata must be a non-empty list of distinct .git and .jj entries')
+      }
       workspace = {
         ...(value.setup === undefined ? {} : { setup: name(value.setup, 'manifest.workspace.setup') }),
         ...(value.final === true ? { final: true as const } : {}),
         ...(value.parent === 'outside-temp' ? { parent: 'outside-temp' as const } : {}),
+        ...(metadata === undefined ? {} : { vcsMetadata: metadata as Array<'.git' | '.jj'> }),
       }
       if (Object.keys(workspace).length === 0) throw new Error('manifest.workspace must not be empty')
     }
@@ -409,6 +423,15 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       }
     }
 
+    let requires: SnapshotTool[] | undefined
+    if (root.requires !== undefined) {
+      const value = root.requires
+      if (!Array.isArray(value) || value.length === 0 || value.some(tool => tool !== 'jj') || new Set(value).size !== value.length) {
+        throw new Error('manifest.requires must be a non-empty list of distinct tools: jj')
+      }
+      requires = value as SnapshotTool[]
+    }
+
     return {
       version: 1,
       ...(scenario === undefined ? {} : { scenario }),
@@ -418,6 +441,7 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       ...(header === undefined ? {} : { header }),
       ...(replay === undefined ? {} : { replay }),
       ...(platform === undefined ? {} : { platform }),
+      ...(requires === undefined ? {} : { requires }),
       ...(permission === undefined ? {} : { permission }),
       ...(environment === undefined ? {} : { environment }),
       ...(workspace === undefined ? {} : { workspace }),

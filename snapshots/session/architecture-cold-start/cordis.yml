@@ -1,0 +1,11 @@
+# The architect tools on the headless session, for the cold-start flow of an
+# Architecture Session. Headless does not mount agent presets, so the
+# architect tool plugin mounts on the host plane here; the architect preset's
+# tool mask is covered by the package tests and the Web pilot.
+- insert:
+    - id: architecture
+      name: '@deepseek-ai/dsh-experimental-architecture'
+      config:
+        localDirectory: .dsh/architecture
+    - id: tool-architecture-architect
+      name: '@deepseek-ai/dsh-experimental-tool-architecture/architect'

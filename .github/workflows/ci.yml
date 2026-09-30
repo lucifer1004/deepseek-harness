@@ -174,18 +174,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
-      - name: Install dependencies and prepare bubblewrap
+      - name: Install dependencies, bubblewrap, and jj
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
           bash scripts/prepare-ci-bubblewrap.sh &
           sandbox_pid=$!
+          bash scripts/prepare-ci-jj.sh &
+          jj_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
           sandbox_status=0
           wait "$sandbox_pid" || sandbox_status=$?
+          jj_status=0
+          wait "$jj_pid" || jj_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
-          exit "$sandbox_status"
+          if (( sandbox_status != 0 )); then exit "$sandbox_status"; fi
+          exit "$jj_status"
 
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
@@ -312,18 +317,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install dependencies and prepare bubblewrap
+      - name: Install dependencies, bubblewrap, and jj
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
           bash scripts/prepare-ci-bubblewrap.sh &
           sandbox_pid=$!
+          bash scripts/prepare-ci-jj.sh &
+          jj_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
           sandbox_status=0
           wait "$sandbox_pid" || sandbox_status=$?
+          jj_status=0
+          wait "$jj_pid" || jj_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
-          exit "$sandbox_status"
+          if (( sandbox_status != 0 )); then exit "$sandbox_status"; fi
+          exit "$jj_status"
 
       # Blacksmith's Ubuntu HTTP archive endpoints can be unreachable while HTTPS works.
       - name: Use HTTPS for Ubuntu archives on Blacksmith

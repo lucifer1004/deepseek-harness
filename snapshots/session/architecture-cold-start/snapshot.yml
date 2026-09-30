@@ -1,0 +1,13 @@
+version: 1
+scenario: architecture-cold-start
+profile: headless
+composition: architecture-cold-start
+recording: authored
+header:
+  class: architecture-cold-start
+  pin: true
+platform: posix
+workspace:
+  setup: git-main
+  final: true
+  vcsMetadata: [.git]

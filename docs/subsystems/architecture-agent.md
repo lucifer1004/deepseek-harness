@@ -8,7 +8,7 @@ The experimental architecture agent keeps worker agents inside the workspace's r
 
 The repository's `architecture.yml` lists Markdown sources as globs, with an optional `exclude` list. The service indexes each source's headings as sections. An `IndexedSection` carries its path, GitHub-style anchor, title, level, line range, and content hash. `ArchitectureIndex` holds every section of every source from the primary worktree, plus diagnostics for sources that could not be read. The index revision hashes every section's path, anchor, and hash, so it changes whenever indexed content changes.
 
-Architecture sources change only on the configured main branch in the primary worktree. A global tool guard denies every other writer; the architect's `architecture_edit` tool checks the same rule, and an `ArchitectureEditRequest` may replace one section at the hash the architect read. `EditRefusal` names the violated condition.
+Architecture sources change only on the configured main branch in the primary worktree. In a Jujutsu repository, colocated or not, the main branch is a bookmark, the primary checkout is the workspace that holds the repository, and a working copy is on the branch when the bookmark points to it or its parent. A `CheckoutState` records the checkout's `VcsKind`, its root, and whether it is primary. A repository without a manifest may receive a first manifest that declares the branch it is on. A global tool guard denies every other writer, including one that would create a file a source glob matches; the architect's `architecture_edit` tool checks the same rule, and an `ArchitectureEditRequest` may replace one section at the hash the architect read. `EditRefusal` names the violated condition.
 
 ## Consultation and Rulings
 
@@ -50,6 +50,22 @@ Workspace architecture sources, index, and edit rule.
 
 ```ts cordis-catalog
 /**
+ * The version control of the checkout containing a directory, and the branches it is on now.
+ * @param cwd - absolute directory inside the checkout.
+ * @param signal - cancels a jj query.
+ * @returns the system, whether the checkout is the primary one, and its current branch or bookmark names.
+ * @throws when `cwd` is not inside a usable git or jj checkout, or version control fails.
+ */
+async currentBranches(cwd: string, signal?: AbortSignal): Promise<{ vcs: VcsKind; isPrimary: boolean; branches: readonly string[] }>
+
+/**
+ * The checkout containing a directory, when the service can read its version control.
+ * @param cwd - absolute directory.
+ * @returns the checkout, or undefined outside git and jj or when that system's executable is not installed.
+ */
+checkout(cwd: string): CheckoutState | undefined
+
+/**
  * Load the manifest and rebuild the index of the checkout containing `cwd`.
  * Rulings and the tool guard read the primary worktree, so the index is
  * always built from the primary worktree of that repository.
@@ -57,7 +73,7 @@ Workspace architecture sources, index, and edit rule.
  * @param signal - cancels the rebuild.
  * @returns the rebuilt index, or undefined when the repository has no manifest.
  * @throws {ManifestError} for a manifest that violates the manifest schema.
- * @throws when `cwd` is not inside a git checkout, or git fails.
+ * @throws when `cwd` is not inside a git or jj checkout, or version control fails.
  */
 async rebuild(cwd: string, signal?: AbortSignal): Promise<ArchitectureIndex | undefined>
 
@@ -163,18 +179,21 @@ async accept(cwd: string, path: string, anchor: string, hash: string): Promise<A
  * Read the whole dashboard state of a repository. Rebuilds the index first.
  * @param cwd - any directory inside the repository.
  * @param signal - cancels the rebuild and git reads.
- * @returns the snapshot.
- * @throws for an invalid manifest, a directory outside git, or a git failure.
+ * @returns the snapshot; outside a usable git or jj checkout, an empty snapshot with `unsupported` set.
+ * @throws for an invalid manifest or a version-control failure.
  */
 async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>
 
 /**
- * Evaluate the edit rule without writing.
+ * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
+ * manifest: `content` written to the manifest path that declares the branch the checkout is on.
  * @param cwd - Session directory.
  * @param path - target, relative to the repository root or absolute.
+ * @param content - the content {@link edit} would write; only a first manifest reads it.
+ * @param signal - cancels a jj branch query.
  * @returns the refusal, or undefined when {@link edit} would write.
  */
-checkEdit(cwd: string, path: string): EditRefusal | undefined
+async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined>
 ```
 
 Types: [Agent](core.md) · [SessionId](core.md)

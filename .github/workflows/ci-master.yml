@@ -171,6 +171,9 @@ jobs:
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
 
+      - name: Install jj
+        run: bash scripts/prepare-ci-jj.sh
+
       - name: Run complete unsharded primary Node CI serially
         env:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}

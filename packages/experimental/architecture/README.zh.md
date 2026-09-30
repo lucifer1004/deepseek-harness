@@ -73,7 +73,7 @@ exclude:
 
 ### 检查提交与 CI
 
-本包附带 [`scripts/check-architecture.sh`](scripts/check-architecture.sh)，这是一个只使用 git 的 POSIX shell 脚本。在 pre-commit hook 中运行 `check-architecture.sh staged`，可拒绝在 manifest 的 `mainBranch` 主 worktree 之外修改 manifest 或来源的提交。在其他分支的 CI 中运行 `check-architecture.sh range origin/main HEAD`，可拒绝修改它们的提交范围。`--main-branch <branch>` 为未声明主分支的 manifest 指定分支；两者都没有时，`staged` 会拒绝一切此类修改。`--manifest <path>` 读取其他 manifest 路径。违规时退出码为 1，用法错误或无法读取的 manifest 为 2；它只读取 `sources:` 与 `exclude:` 下的块列表以及普通的 `mainBranch:` 值。
+本包附带 [`scripts/check-architecture.sh`](scripts/check-architecture.sh)，这是一个只使用 git 或 jj 的 POSIX shell 脚本。在 git 中，于 pre-commit hook 中运行 `check-architecture.sh staged`，可拒绝在 manifest 的 `mainBranch` 主 worktree 之外修改 manifest 或来源的提交。在其他分支的 CI 中运行 `check-architecture.sh range origin/main HEAD`，可拒绝修改它们的提交范围。`--main-branch <branch>` 为未声明主分支的 manifest 指定分支；两者都没有时，`staged` 会拒绝一切此类修改。`--manifest <path>` 读取其他 manifest 路径。在 jj 仓库中（共置与否均可），于 `jj git push` 之前运行 `check-architecture.sh working`，可拒绝在主 workspace 之外、或离开 `mainBranch` 书签及其子提交时对 manifest 或来源的工作副本修改；在 CI 中运行 `check-architecture.sh range main @-`，两个参数都是 revset。违规时退出码为 1，用法错误或无法读取的 manifest 为 2；它只读取 `sources:` 与 `exclude:` 下的块列表以及普通的 `mainBranch:` 值。
 
 -----
 
@@ -177,7 +177,6 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 这些限制说明本包目前不保护或尚未提供的内容。
 
 - **Shell 写入不受守卫**——`bash`、`pwsh`、终端与 `run_code` 仍可修改受保护文件；用户接入 [`scripts/check-architecture.sh`](scripts/check-architecture.sh) 后，它会在提交时或 CI 中拒绝此类修改。
-- **检查脚本只读取 git**——在不与 git 共置的 jj 仓库中，[`scripts/check-architecture.sh`](scripts/check-architecture.sh) 因没有 git checkout 而以 2 退出；共置仓库的 `git` 视图可在 CI 中用于 `range`，但不能用于 `staged`，因为 jj 不使用 git 索引。
 - **只识别内置文件工具**——守卫知道 `write`、`edit` 与 `str_replace_editor` 的参数名；其他插件的文件工具不受检查。
 - **索引仅在内存中**——来源在 `edit()` 之外改变时不会自动重建，重启后也会丢失。
 - **记录是本地文件**——Ruling、申诉与接受记录是主 worktree 本地目录下的 JSON 文件；是否纳入版本控制由用户决定，不同克隆中写入的记录不会合并。

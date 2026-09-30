@@ -1,5 +1,4 @@
 /** The architecture service in Jujutsu repositories: non-colocated, colocated, and secondary workspaces, against real jj. */
-import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,27 +11,12 @@ import ArchitectureService, { describeRefusal } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import { JjFiles, jjString } from '../src/jj-files.ts'
 import { locateCheckout } from '../src/repository.ts'
+import { hasJj, jj } from './jj-support.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
-
-function hasJj(): boolean {
-  try {
-    execFileSync('jj', ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    // execFileSync failed: jj is not installed on this host, so the real-jj suite skips.
-    return false
-  }
-}
-
-function jj(cwd: string, ...args: string[]): string {
-  return execFileSync('jj', [...args, '--no-pager', '--color=never'], {
-    cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, JJ_CONFIG: '/dev/null', JJ_USER: 't', JJ_EMAIL: 't@example.com' },
-  })
-}
 
 async function scratch(): Promise<string> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'dsh-architecture-jj-')))

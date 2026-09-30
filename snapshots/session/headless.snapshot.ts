@@ -498,6 +498,24 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       writeFile(join(dir, 'task.txt'), 'delimiter path snapshot task\n'),
     ])
   },
+  async 'jj-main'(cwd) {
+    // A non-colocated jj repository whose `main` bookmark holds the seeded files; `@` is an empty child of it.
+    const env = {
+      ...process.env,
+      JJ_CONFIG: '/dev/null',
+      JJ_USER: 'snapshot',
+      JJ_EMAIL: 'snapshot@example.com',
+      JJ_TIMESTAMP: '2000-01-01T00:00:00Z',
+      JJ_OP_TIMESTAMP: '2000-01-01T00:00:00Z',
+      JJ_RANDOMNESS_SEED: '0',
+      JJ_OP_HOSTNAME: 'snapshot',
+      JJ_OP_USERNAME: 'snapshot',
+    }
+    for (const args of [['git', 'init', '--no-colocate'], ['describe', '-m', 'seed'], ['bookmark', 'create', 'main', '-r', '@'], ['new']]) {
+      const result = spawnSync('jj', [...args, '--no-pager', '--color=never'], { cwd, env, encoding: 'utf8' })
+      if (result.status !== 0) throw new Error(`jj ${args.join(' ')} failed: ${result.stderr}`)
+    }
+  },
   async 'git-main'(cwd) {
     // Commit the seeded files on `main` with a fixed identity and date, so the commit and its hashes are stable.
     const env = {
@@ -565,6 +583,8 @@ const hasPwsh = spawnSync(
   ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'],
   { encoding: 'utf8' },
 ).status === 0
+const hasJj = spawnSync('jj', ['--version'], { encoding: 'utf8' }).status === 0
+const availableTools: Record<NonNullable<SnapshotManifest['requires']>[number], boolean> = { jj: hasJj }
 const scenarioByName = new Map(scenarios.map(scenario => [scenario.name, scenario]))
 const compositionOwners = new Map<string, HeadlessScenario>()
 const headerPins = new Map<string, HeadlessScenario>()
@@ -1097,6 +1117,7 @@ describe('headless recorded-session snapshots', () => {
   for (const { scenario, retainedToolInput } of runs) {
     const skipped = scenario.manifest.platform === 'posix' && process.platform === 'win32'
       || scenario.manifest.platform === 'pwsh' && !hasPwsh
+      || (scenario.manifest.requires ?? []).some(tool => !availableTools[tool])
       || mode === 'record' && scenario.manifest.recording === 'authored'
       || mode === 'record' && scenario.manifest.sessionFormat !== undefined
     const scenarioTest = skipped ? it.skip : mode === 'replay' ? it.concurrent : it
@@ -1195,7 +1216,7 @@ describe('headless recorded-session snapshots', () => {
             }
             await seedWorkspace(scenario, cwd)
             initialWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries: [...RUNTIME_WORKSPACE_ENTRIES, ...scenario.manifest.workspace?.vcsMetadata ?? []],
             })
           },
           inspect: async (cwd) => {
@@ -1230,7 +1251,7 @@ describe('headless recorded-session snapshots', () => {
               await verifyBackgroundConfinementFailure(actualLogs[0]!.content, cwd)
             }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries: [...RUNTIME_WORKSPACE_ENTRIES, ...scenario.manifest.workspace?.vcsMetadata ?? []],
             })
           },
         })
