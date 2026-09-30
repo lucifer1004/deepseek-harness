@@ -74,15 +74,25 @@ async function remoteError(promise: Promise<unknown>): Promise<RemoteError> {
 }
 
 describe('architecture Remote namespace', () => {
-  it('reads a snapshot and a section, and accepts a reviewed section', async () => {
+  it('reads a section before any snapshot builds the index', async () => {
     const { api } = await boot()
+    const section = await api.section({ workspaceId: WORKSPACE, path: 'design/arch.md', anchor: 'storage' }, new AbortController().signal)
+    expect(section.text).toBe('## Storage\n\nUse the store.\n')
+  })
+
+  it('reads a snapshot and a section, and accepts a reviewed section', async () => {
+    const { api, ctx } = await boot()
     const signal = new AbortController().signal
     const snapshot = await api.snapshot(WORKSPACE, signal)
     expect(snapshot.hasManifest).toBe(true)
     expect(snapshot.index.sections.map(section => section.anchor)).toEqual(['arch', 'storage'])
 
+    // A section read uses the index the snapshot built instead of rebuilding it.
+    const rebuild = vi.spyOn(ctx.architecture, 'rebuild')
     const section = await api.section({ workspaceId: WORKSPACE, path: 'design/arch.md', anchor: 'storage' }, signal)
     expect(section.text).toBe('## Storage\n\nUse the store.\n')
+    expect(rebuild).not.toHaveBeenCalled()
+    rebuild.mockRestore()
     const accepted = await api.accept({ workspaceId: WORKSPACE, path: 'design/arch.md', anchor: 'storage', hash: section.hash })
     expect(accepted.hash).toBe(section.hash)
 

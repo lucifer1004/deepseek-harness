@@ -127,7 +127,9 @@ export default class ArchitectureController extends TypertRemoteService {
     const path = this.workspacePath(request.workspaceId)
     let found: Awaited<ReturnType<Context['architecture']['readSection']>>
     try {
-      await this.ctx.architecture.rebuild(path, signal)
+      // The dashboard lists sections from the snapshot the service last built, so the section is read against
+      // that index; only a Workspace with no index yet pays for a rebuild.
+      if (this.ctx.architecture.index(path) === undefined) await this.ctx.architecture.rebuild(path, signal)
       found = await this.ctx.architecture.readSection(path, request.path, request.anchor, signal)
     } catch (error) {
       signal.throwIfAborted()
