@@ -19,7 +19,7 @@ An **architecture agent** is a project-scoped product role with three entry poin
 | Entry point | User | Access to the architecture sources |
 |---|---|---|
 | Dashboard | the user, without a conversation | live read; accept local entries; adjudicate appeals |
-| Architecture Session | the user with the architect preset | read, discuss, and edit on the main branch |
+| Architecture Session | the user with the architect preset | read, discuss, and edit in the primary checkout |
 | Consultation | a worker agent | read through a binding Ruling; appeal to the user |
 
 The role borrows three ideas from sleep-time and "dream" agents: context is prepared before a worker needs it, the worker and the architect use separate contexts, and background analysis only produces proposals for the user to review. Background analysis never rewrites the architecture sources itself.
@@ -34,14 +34,14 @@ The plugin derives an **architecture index** from the manifest sources and `.arc
 
 ### Edit rule
 
-Only `architecture_edit` writes architecture sources, and only on the main branch in the primary worktree. The tool resolves the Session's checkout and refuses the write unless the checkout is the repository's primary worktree and `HEAD` is the configured `mainBranch`. `mainBranch` is a required configuration field without a default. No other tool and no other Session may change a manifest source, including a worker running in the primary worktree on `mainBranch`; a worker that disagrees with a source appeals instead.
+Only `architecture_edit` writes architecture sources, and only in the primary checkout: the repository's primary git worktree, or the jj workspace that holds the repository. The tool resolves the Session's checkout and refuses the write from any other checkout; the checkout may be on any branch. `mainBranch` names the branch whose committed content Rulings may cite, not where edits happen, so an edit on another branch binds nobody until it is merged into `mainBranch` or the user accepts it. No other tool and no other Session may change a manifest source, including a worker running in the primary checkout; a worker that disagrees with a source appeals instead.
 
 Rulings always cite the primary worktree's content, even when the consulting worker runs in a linked worktree whose copy is older.
 
 The rule is enforced at three layers, because no single layer covers every write path:
 
 1. **Tool guard.** The plugin registers a global `ctx.tools.guard()` that denies `write`, `edit`, and `str_replace_editor` calls whose path argument, resolved against the Session's cwd and canonicalized, names a manifest source or a path under `.architecture/`. Guards run after every `tools/pre-execute` listener and can only deny, so listener order cannot re-allow the call; PTC sub-calls pass through the same guard. The denial reason directs the model to `consult_architect` or `appeal_ruling`. `architecture_edit` is not a generic write tool and performs its own checks.
-2. **Git checks.** Bash, terminals, PTC code, and their subprocesses write through the kernel sandbox, which grants the whole workspace root and cannot make a subpath inside it read-only on every runner. The plugin therefore ships a check script, not a hook installation: it rejects a commit that touches a manifest source outside the primary worktree or off `mainBranch`, and it rejects a branch whose diff against `mainBranch` touches a manifest source. The user wires the script into the repository's pre-commit hook and into the merge path, such as CI or the fork's local merge procedure. The merge-path check is the final enforcement point, because `git commit --no-verify` skips the pre-commit hook.
+2. **Git checks.** Bash, terminals, PTC code, and their subprocesses write through the kernel sandbox, which grants the whole workspace root and cannot make a subpath inside it read-only on every runner. The plugin therefore ships a check script, not a hook installation: it rejects a commit that touches a manifest source outside the primary checkout, and on the merge path it lists the manifest sources a branch changes relative to `mainBranch` without failing. The user wires the script into the repository's pre-commit hook and into the merge path, such as CI or the fork's local merge procedure. Merge review is the final enforcement point, because `git commit --no-verify` skips the pre-commit hook: a source change committed from a linked worktree with `--no-verify` binds only once it is merged into `mainBranch`, and the merge-path listing shows it to the reviewer before then.
 3. **Dashboard detection.** The dashboard reports any manifest source whose working copy differs from `mainBranch` in any worktree, so an edit that bypassed the first two layers is visible before it is committed.
 
 The `fs/write-intent` and `fs/edit-intent` events are not used: each is a single decision slot that [fs-observation-policy](../../../../packages/fs/fs-observation-policy/README.md) occupies by registration order, and that package directs layered permission to the `tools/*` pipeline. A decorating `ctx.fs` provider, in the way [fs-sandbox](../../../../packages/fs/fs-sandbox/README.md) fences mutations after re-canonicalizing the target, would check the exact target instead of parsed arguments, but it replaces the composition's `ctx.fs` row; it is deferred unless the guard's argument parsing proves insufficient.
@@ -79,7 +79,7 @@ The result is a **Ruling**: a `RulingId`, the index revision, zero or more const
 A worker that judges a Ruling wrong calls `appeal_ruling(rulingId, reason, evidence)`. The Ruling stays binding during the appeal: the worker may continue unaffected work or stop, but must not bypass the constraint. The user adjudicates in the dashboard:
 
 - **Uphold:** the worker is told to keep following the Ruling.
-- **Overturn:** the user revises the sources in an Architecture Session on the main branch, which produces a new index revision, and the worker receives the revised constraints.
+- **Overturn:** the user revises the sources in an Architecture Session and commits them on the main branch, which produces a new index revision, and the worker receives the revised constraints.
 - **Grant an exception:** the user records a scoped exception or deviation under `.architecture/`, and the worker receives it.
 
 The adjudication reaches the worker through `agent.steer()`, so it enters that Session's log as an ordinary input. When the worker Session is not loaded, the adjudication stays pending in its appeal record and is delivered when that Session's agent is next created. When a cited section's hash changes later, the dashboard marks the Rulings that cite it as stale.
@@ -125,9 +125,9 @@ The third milestone, the dashboard with records and appeals, settled four more. 
 
 **Advisory consultations.** Advice lets a worker under local pressure ignore the design exactly when it matters. Binding Rulings plus appeal to the user keep the constraint firm and give the worker a path to report a wrong judgment. Requiring citations keeps unsupported architect judgments from becoming constraints.
 
-**Architecture edits from any worktree or branch.** This would let branch work update its own design, but parallel worktrees would diverge on the architecture itself, and Rulings would lack one authoritative text. The edit rule gives Rulings one source; branch work reaches the design through an appeal or an Architecture Session.
+**Architecture edits from any worktree or branch.** This would let branch work update its own design, but parallel worktrees would diverge on the architecture itself, and Rulings would lack one authoritative text. The primary-checkout rule and the citation rule give Rulings one source: only the primary checkout indexes and edits the design, and a constraint binds only on content committed on `mainBranch` or accepted by the user, so an edit on a branch binds nobody until it is merged. Work in other worktrees reaches the design through an appeal or an Architecture Session.
 
-**A location-only rule that permits any writer on `mainBranch` in the primary worktree.** It would be simpler to state, but a worker running there could rewrite a source with generic tools and change the constraints it is bound by, bypassing the appeal path. The edit rule restricts the writer as well as the location.
+**A location-only rule that permits any writer in the primary checkout.** It would be simpler to state, but a worker running there could rewrite a source with generic tools and change the constraints it is bound by, bypassing the appeal path. The edit rule restricts the writer as well as the location.
 
 **Read-only subpaths in the kernel sandbox.** Adding a read-only subpath list to `SandboxExecutionPolicy` would stop Bash writes directly. It changes the public sandbox policy and every runner: bwrap read-only binds cover only paths that exist when the command starts, Landlock grants are additive and cannot remove a subdirectory from a granted root, and `danger-full-access` bypasses confinement entirely. Commit and merge checks enforce the rule where the authoritative record changes, without that change.
 
@@ -147,9 +147,9 @@ The third milestone, the dashboard with records and appeals, settled four more. 
 
 - Mounting the profile patch adds the dashboard entry, the `architect` preset, and the worker tools; release profiles and packages remain unchanged.
 - A workspace without a manifest can establish one through an Architecture Session, and every source write passes through `architecture_edit` after user confirmation.
-- `architecture_edit` rejects a target outside the manifest and `.architecture/`, and rejects every write from a linked worktree or a branch other than `mainBranch`; tests exercise both denials through the tool executor.
+- `architecture_edit` rejects a target outside the manifest and `.architecture/`, and rejects every write from a linked worktree or a secondary jj workspace; tests exercise both denials through the tool executor.
 - The tool guard denies `write`, `edit`, and `str_replace_editor` on a manifest source or `.architecture/` path in every Session, including the primary worktree on `mainBranch`, for direct and PTC calls, and for a relative, symlinked, or `..` spelling of the path.
-- The check script rejects a commit or branch diff that touches a manifest source outside the primary worktree or `mainBranch`, and accepts an `architecture_edit` result committed on `mainBranch` in the primary worktree.
+- The check script rejects a commit that touches a manifest source outside the primary checkout, accepts an `architecture_edit` result committed in the primary checkout on any branch, and lists without failing the manifest sources a branch diff changes.
 - An Architecture Session and a consultation agent see and can execute only the architect tools; a Session that selects the `architect` preset through the ordinary new-session path is denied every mutating tool by the guard, under every sandbox mode.
 - `consult_architect` returns a Ruling whose every constraint cites a citable section with a matching hash; a constraint with an invalid, stale, or uncited source is removed or returned as an unresolved point.
 - An appeal appears in the dashboard, and each adjudication reaches the worker as a logged input in its Session.

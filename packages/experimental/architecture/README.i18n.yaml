@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/architecture/README.md
 /:
-  en: 59960d66011016ca
-  zh: 53893f9a76667097
+  en: c7302542ce596161
+  zh: 1d113ad854872fe2
 /deepseek-ai-dsh-experimental-architecture:
   en: 48e09bf5e629847c
   zh: 88aa65039bba0e71
 /deepseek-ai-dsh-experimental-architecture/summary:
-  en: a6827b189719917e
-  zh: 38d538e2c5f82672
+  en: 4d35181249a2973e
+  zh: fc82416e8a711995
 /deepseek-ai-dsh-experimental-architecture/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -21,17 +21,17 @@
   en: bf9dd0874c068e1c
   zh: b22fa08bbf4b962e
 /deepseek-ai-dsh-experimental-architecture/use-this-package/minimal-configuration:
-  en: 115db5663d9a99f6
-  zh: 99f13f859ad17513
+  en: 871a5d0cf5e63c07
+  zh: 0fe04ae6a3f5ecac
 /deepseek-ai-dsh-experimental-architecture/use-this-package/what-success-and-failure-look-like:
-  en: 380463f02eea2bc1
-  zh: b149af1c36ce0b45
+  en: 540db5bcc3f543d1
+  zh: 8ef0f8f345235695
 /deepseek-ai-dsh-experimental-architecture/use-this-package/check-commits-and-ci:
-  en: 8b6bcb392acedd07
-  zh: ccb85066f04e8a8c
+  en: b8aabea3ffb2d9cf
+  zh: d30af44c03ed848e
 /deepseek-ai-dsh-experimental-architecture/understand-the-implementation:
-  en: c9140fbbdcbd22c4
-  zh: ce0a2826b292c080
+  en: 88931c62d9fb3989
+  zh: bda630ab23147e55
 /deepseek-ai-dsh-experimental-architecture/further-exploration:
   en: 0ebb3545ff232737
   zh: a5ee1d08f047f1e9
@@ -42,8 +42,8 @@
   en: 274c4dacde93f418
   zh: 5ca57ad9c2bd8356
 /deepseek-ai-dsh-experimental-architecture/model-experience/guard-denial/what-the-model-sees:
-  en: 13a094b4cf67229c
-  zh: 02bc4f1657e4d3f6
+  en: 8df1b99337e66470
+  zh: 3450b1c2ecfc975e
 /deepseek-ai-dsh-experimental-architecture/model-experience/guard-denial/token-effect:
   en: 04c77f45e21dd5d8
   zh: c8e8e19bee3c1064

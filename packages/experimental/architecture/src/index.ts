@@ -35,6 +35,7 @@ import type {
   ArchitectureEditResult,
   ArchitectureIndex,
   ArchitectureManifest,
+  CheckoutBranches,
   CheckoutState,
   Config,
   Acceptance,
@@ -175,15 +176,11 @@ function relativeInside(root: string, target: string): string | undefined {
 export function describeRefusal(refusal: EditRefusal): string {
   switch (refusal.kind) {
     case 'not-repository':
-      return `${refusal.cwd} is not inside a git or jj checkout, so the main-branch edit rule cannot be satisfied`
+      return `${refusal.cwd} is not inside a git or jj checkout, so it has no primary checkout where architecture sources change`
     case 'linked-worktree':
       return `architecture sources change only in the primary checkout ${refusal.primaryRoot}, not in ${refusal.root}`
-    case 'no-main-branch':
-      return `architecture sources cannot change until ${refusal.manifestPath} declares mainBranch, the branch whose primary worktree changes them`
-    case 'wrong-branch':
-      return refusal.vcs === 'jj'
-        ? `architecture sources change only on bookmark ${refusal.mainBranch}; the working-copy commit is neither ${refusal.mainBranch} nor its child`
-        : `architecture sources change only on branch ${refusal.mainBranch}; the checkout is on ${refusal.branch ?? 'a detached HEAD'}`
+    case 'unknown-branch':
+      return `${refusal.branch} is not a local ${refusal.vcs === 'jj' ? 'bookmark' : 'branch'} of this repository`
     case 'not-protected':
       return `${refusal.path} is neither an architecture source, the manifest, nor a path under the local architecture directory`
     case 'unknown-section':
@@ -292,15 +289,17 @@ export class ArchitectureService extends Service {
   }
 
   /**
-   * The version control of the checkout containing a directory, and the branches it is on now.
+   * The version control of the checkout containing a directory and the repository's local branches.
    * @param cwd - absolute directory inside the checkout.
-   * @param signal - cancels a jj query.
-   * @returns the system, whether the checkout is the primary one, and its current branch or bookmark names.
+   * @param signal - cancels git and jj queries.
+   * @returns the system, whether the checkout is the primary one, the branch or bookmark names it is on now, and every
+   * local branch or bookmark.
    * @throws when `cwd` is not inside a usable git or jj checkout, or version control fails.
    */
-  async currentBranches(cwd: string, signal?: AbortSignal): Promise<{ vcs: VcsKind; isPrimary: boolean; branches: readonly string[] }> {
+  async branches(cwd: string, signal?: AbortSignal): Promise<CheckoutBranches> {
     const checkout = this.requireCheckout(cwd)
-    return { vcs: checkout.vcs, isPrimary: checkout.isPrimary, branches: await this.filesOf(checkout).currentBranches(checkout, signal) }
+    const { all, current } = await this.filesOf(checkout).branches(checkout, signal)
+    return { vcs: checkout.vcs, isPrimary: checkout.isPrimary, current, all }
   }
 
   /**
@@ -391,9 +390,9 @@ export class ArchitectureService extends Service {
 
   /**
    * Write one architecture file, or replace one of its indexed sections, under
-   * the main-branch edit rule. The target must be the manifest, an indexed
-   * source, or a path under the local directory, and the checkout must be the
-   * primary worktree on `mainBranch`. A section edit reads the current file,
+   * the edit rule. The target must be the manifest, an indexed source, or a
+   * path under the local directory, and the checkout must be the primary
+   * worktree or jj workspace, on any branch. A section edit reads the current file,
    * refuses when the section is missing or its hash differs from
    * `expectedHash`, and replaces the section's lines. The write replaces the
    * file atomically and rebuilds the index.
@@ -401,7 +400,7 @@ export class ArchitectureService extends Service {
    * @returns the written path, or the refusal.
    */
   async edit(request: ArchitectureEditRequest): Promise<ArchitectureEditResult> {
-    const refusal = await this.checkEdit(request.cwd, request.path, request.content, request.signal)
+    const refusal = this.checkEdit(request.cwd, request.path)
     if (refusal !== undefined) return { kind: 'refused', refusal }
     const checkout = this.checkout(request.cwd)
     /* v8 ignore next -- checkEdit refuses a missing checkout. */
@@ -666,11 +665,14 @@ export class ArchitectureService extends Service {
     const records = await this.store(root).read()
     const mainBranch = this.mainBranchOf(root)
     const files = this.filesOf(checkout)
-    const status = await files.status(root, mainBranch, [...index.sources, ...localEntries], signal)
-    // Writes happen in the primary checkout, so its branches are the ones setMainBranch may declare.
+    // setMainBranch writes in the primary checkout, so its branch list is the one the dashboard offers.
     const primary = locateCheckout(root)
     /* v8 ignore next -- root is the primary root of a located checkout, so it locates. */
-    const currentBranches = primary === undefined ? [] : await files.currentBranches(primary, signal)
+    if (primary === undefined) throw new Error(`${root} is not a checkout`)
+    const [status, branches] = await Promise.all([
+      files.status(root, mainBranch, [...index.sources, ...localEntries], signal),
+      files.branches(primary, signal),
+    ])
     const gitStatus = (path: string): GitFileStatus => status.get(path) ?? 'committed'
     const current = new Map(index.sections.map(section => [`${section.path}#${section.anchor}`, section.hash]))
     const rulings = [...records.rulings.values()]
@@ -686,7 +688,7 @@ export class ArchitectureService extends Service {
       root,
       vcs: checkout.vcs,
       ...(mainBranch === undefined ? {} : { mainBranch }),
-      currentBranches,
+      branches,
       manifestPath: this.config.manifestPath,
       localDirectory: this.config.localDirectory,
       hasManifest: this.roots.get(root)?.manifest !== undefined,
@@ -702,16 +704,17 @@ export class ArchitectureService extends Service {
   }
 
   /**
-   * Declare the repository's main branch in its manifest. The write follows the edit rule: a repository that declares
-   * no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.
+   * Declare the repository's main branch in its manifest, from the primary checkout. The branch must be one of the
+   * repository's local branches or bookmarks.
    * @param cwd - any directory inside the repository.
    * @param branch - the branch or jj bookmark to declare.
-   * @param signal - cancels jj queries.
+   * @param signal - cancels git and jj queries.
    * @returns the written manifest path, or the refusal.
    * @throws {ManifestError} when the repository has no valid manifest or `branch` is not a branch name.
    */
   async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult> {
     const checkout = this.requireCheckout(cwd)
+    if (!checkout.isPrimary) return { kind: 'refused', refusal: { kind: 'linked-worktree', root: checkout.root, primaryRoot: checkout.primaryRoot } }
     let text: string
     try {
       text = await readFile(join(checkout.primaryRoot, this.config.manifestPath), 'utf8')
@@ -719,39 +722,22 @@ export class ArchitectureService extends Service {
       throw new ManifestError(`${this.config.manifestPath}: cannot read the manifest: ${String(error)}`)
     }
     const content = withMainBranch(text, branch, this.config.manifestPath)
-    // A manifest that declares no branch gains one the checkout is on, as a first manifest does; edit() then checks
-    // the branch that governs the repository today, the declared one or the service default.
-    if (declaredMainBranch(text) === undefined && !await this.filesOf(checkout).onBranch(checkout, branch, signal)) {
-      return { kind: 'refused', refusal: { kind: 'wrong-branch', vcs: checkout.vcs, branch: checkout.branch, mainBranch: branch } }
-    }
+    const { all } = await this.filesOf(checkout).branches(checkout, signal)
+    if (!all.includes(branch)) return { kind: 'refused', refusal: { kind: 'unknown-branch', vcs: checkout.vcs, branch } }
     return await this.edit({ cwd: checkout.primaryRoot, path: this.config.manifestPath, content, signal })
   }
 
   /**
-   * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
-   * manifest: `content` written to the manifest path that declares the branch the checkout is on.
+   * Evaluate the edit rule without writing: architecture files change only in the primary checkout, on any branch.
    * @param cwd - Session directory.
    * @param path - target, relative to the repository root or absolute.
-   * @param content - the content {@link edit} would write; only a first manifest reads it.
-   * @param signal - cancels a jj branch query.
    * @returns the refusal, or undefined when {@link edit} would write.
    */
-  async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined> {
+  checkEdit(cwd: string, path: string): EditRefusal | undefined {
     const checkout = this.checkout(cwd)
     if (checkout === undefined) return { kind: 'not-repository', cwd }
     if (!checkout.isPrimary) return { kind: 'linked-worktree', root: checkout.root, primaryRoot: checkout.primaryRoot }
     const target = canonicalizeForWrite(resolve(checkout.root, path))
-    const files = this.filesOf(checkout)
-    let mainBranch = this.mainBranchOf(checkout.primaryRoot)
-    const manifest = canonicalizeForWrite(join(checkout.root, this.config.manifestPath))
-    if (mainBranch === undefined && target === manifest && content !== undefined) {
-      // A first manifest establishes the branch it declares, so the checkout must already be on it.
-      mainBranch = declaredMainBranch(content)
-    }
-    if (mainBranch === undefined) return { kind: 'no-main-branch', manifestPath: this.config.manifestPath }
-    if (!await files.onBranch(checkout, mainBranch, signal)) {
-      return { kind: 'wrong-branch', vcs: checkout.vcs, branch: checkout.branch, mainBranch }
-    }
     if (relativeInside(checkout.root, target) === undefined || !this.isProtected(target)) {
       return { kind: 'not-protected', path }
     }
@@ -890,7 +876,7 @@ export class ArchitectureService extends Service {
     }
     const target = writeTarget(writeCall(exec))
     if (target === undefined || !this.isProtected(target)) return undefined
-    return `${target} is an architecture source. Architecture sources change only through the architecture agent on the main branch; do not edit them directly.`
+    return `${target} is an architecture source. Architecture sources change only through the architecture agent; do not edit them directly.`
   }
 }
 

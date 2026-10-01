@@ -1,5 +1,5 @@
 ---
-description: "让仓库的架构文档保持权威：为其章节建立带稳定锚点与内容哈希的索引，并且只允许在主分支的主 worktree 中编辑它们。"
+description: "让仓库的架构文档保持权威：为其章节建立带稳定锚点与内容哈希的索引，并且只允许在主 checkout 中编辑它们。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-在 agent 修改代码时，让仓库的架构文档保持权威。你在 `architecture.yml` manifest 中列出来源文档；本包为每个 Markdown 章节建立带 GitHub 锚点与内容哈希的索引，裁定可以按确切版本引用 `path#anchor`。内置文件工具不能写这些文档，本包自己的编辑路径只在主分支的主 checkout 中写入。仓库可以是 git，也可以是与 git 共置或不共置的 Jujutsu。`consult()` 返回一份 Ruling，其约束性要求引用已提交或经用户接受的章节；Ruling、申诉与接受记录保存在 `.architecture/` 下。
+在 agent 修改代码时，让仓库的架构文档保持权威。你在 `architecture.yml` manifest 中列出来源文档；本包为每个 Markdown 章节建立带 GitHub 锚点与内容哈希的索引，裁定可以按确切版本引用 `path#anchor`。内置文件工具不能写这些文档，本包自己的编辑路径只在主 checkout 中写入。仓库可以是 git，也可以是与 git 共置或不共置的 Jujutsu。`consult()` 返回一份 Ruling，其约束性要求引用已提交或经用户接受的章节；Ruling、申诉与接受记录保存在 `.architecture/` 下。
 
 ## 目录
 
@@ -52,7 +52,7 @@ exclude:
   - '**/*.zh.md'
 ```
 
-每个仓库的主分支取 manifest 的 `mainBranch`；manifest 未声明时取服务的 `mainBranch`。只有该分支的主 worktree checkout 能修改架构来源，裁定也只绑定已在该分支提交的章节。在 jj 仓库中，主分支是一个本地书签，主 checkout 是以目录形式持有 `.jj/repo` 的 workspace；当书签指向某个 workspace 的工作副本 commit 或该 commit 的父 commit 时，该 workspace 就在该分支上。没有 manifest 的仓库可以通过 `edit()` 获得第一份 manifest，前提是该 manifest 声明了 checkout 当前所在的分支；Architecture 会话就是这样建立记录的。`setMainBranch()` 按同一规则在已有 manifest 中声明分支：未声明分支的 manifest 可以声明 checkout 当前所在的分支，已声明的分支只能在该分支上更改。它只把 `mainBranch` 的值替换为带引号的字符串，缺失时把该键加在第一个键之前，并保留文件的其他所有字节。服务每次检查都会读取 manifest 中的分支，因此修改分支会立即生效。两者都未设置的仓库会以 `no-main-branch` 拒绝一切架构编辑，其裁定只绑定用户接受过的章节。
+架构来源只能在主 checkout 中修改，可以在任意分支上：即 git 的主 worktree，或 jj 仓库中以目录形式持有 `.jj/repo` 的 workspace。每个仓库的主分支取 manifest 的 `mainBranch`；manifest 未声明时取服务的 `mainBranch`；裁定只绑定已在该分支提交的章节；在 jj 中它是一个本地书签。没有 manifest 的仓库可以通过 `edit()` 获得第一份 manifest；Architecture 会话就是这样建立记录的。`setMainBranch()` 在主 checkout 中把任意本地分支或书签声明到已有 manifest 中。它只把 `mainBranch` 的值替换为带引号的字符串，缺失时把该键加在第一个键之前，并保留文件的其他所有字节。服务每次检查都会读取 manifest 中的分支，因此修改分支会立即生效。两者都未设置的仓库，其裁定只绑定用户接受过的章节。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -73,11 +73,11 @@ exclude:
 
 ### 成功与失败的表现
 
-`ctx.architecture.rebuild(cwd)` 返回包含 `cwd` 的仓库的索引；仓库没有 manifest 时返回 `undefined`；manifest 无效时抛出 `ManifestError`。过大、不可读或不是 UTF-8 的来源会出现在 `diagnostics` 中，而不会让重建失败。目标为受保护路径的 `write`、`edit` 或 `str_replace_editor` 调用会以指明该路径的错误结果失败。`ctx.architecture.edit()` 返回 `{ kind: 'written' }`，或 `kind` 为 `not-repository`、`linked-worktree`、`no-main-branch`、`wrong-branch`、`not-protected`、`unknown-section`、`stale-section` 之一的拒绝；`describeRefusal()` 把它渲染成一句话。`ctx.architecture.consult()` 返回 `{ kind: 'ruling' }`、`timeout` 或 `no-submission`；worker 取消、worker 会话没有目录或仓库没有 manifest 时则 reject。`snapshot(cwd)` 返回仪表盘状态；当 `cwd` 位于 git 与 jj 之外，或对应系统的可执行文件缺失时，返回一个空状态，其 `unsupported` 为 `no-repository` 或 `vcs-missing`；`checkout(cwd)` 仅在服务能读取该 checkout 时返回它，`currentBranches(cwd)` 列出它当前所在的分支，或指向 `@` 与 `@-` 的书签；`appeal()`、`adjudicate()` 与 `accept()` 在 Ruling 或申诉未知、申诉已裁决或章节哈希已变化时 reject，并在消息中指明原因。
+`ctx.architecture.rebuild(cwd)` 返回包含 `cwd` 的仓库的索引；仓库没有 manifest 时返回 `undefined`；manifest 无效时抛出 `ManifestError`。过大、不可读或不是 UTF-8 的来源会出现在 `diagnostics` 中，而不会让重建失败。目标为受保护路径的 `write`、`edit` 或 `str_replace_editor` 调用会以指明该路径的错误结果失败。`ctx.architecture.edit()` 返回 `{ kind: 'written' }`，或 `kind` 为 `not-repository`、`linked-worktree`、`not-protected`、`unknown-section`、`stale-section` 之一的拒绝，`setMainBranch()` 还会以 `unknown-branch` 拒绝；`describeRefusal()` 把它渲染成一句话。`ctx.architecture.consult()` 返回 `{ kind: 'ruling' }`、`timeout` 或 `no-submission`；worker 取消、worker 会话没有目录或仓库没有 manifest 时则 reject。`snapshot(cwd)` 返回仪表盘状态；当 `cwd` 位于 git 与 jj 之外，或对应系统的可执行文件缺失时，返回一个空状态，其 `unsupported` 为 `no-repository` 或 `vcs-missing`；`checkout(cwd)` 仅在服务能读取该 checkout 时返回它，`branches(cwd)` 列出所有本地分支或书签，以及它当前所在的那些：git 的 `HEAD` 分支，或指向 `@` 与 `@-` 的书签；`appeal()`、`adjudicate()` 与 `accept()` 在 Ruling 或申诉未知、申诉已裁决或章节哈希已变化时 reject，并在消息中指明原因。
 
 ### 检查提交与 CI
 
-本包附带 [`scripts/check-architecture.sh`](scripts/check-architecture.sh)，这是一个只使用 git 或 jj 的 POSIX shell 脚本。在 git 中，于 pre-commit hook 中运行 `check-architecture.sh staged`，可拒绝在 manifest 的 `mainBranch` 主 worktree 之外修改 manifest 或来源的提交。在其他分支的 CI 中运行 `check-architecture.sh range origin/main HEAD`，可拒绝修改它们的提交范围。`--main-branch <branch>` 为未声明主分支的 manifest 指定分支；两者都没有时，`staged` 会拒绝一切此类修改。`--manifest <path>` 读取其他 manifest 路径。在 jj 仓库中（共置与否均可），于 `jj git push` 之前运行 `check-architecture.sh working`，可拒绝在主 workspace 之外、或离开 `mainBranch` 书签及其子提交时对 manifest 或来源的工作副本修改；在 CI 中运行 `check-architecture.sh range main @-`，两个参数都是 revset。违规时退出码为 1，用法错误或无法读取的 manifest 为 2；它只读取 `sources:` 与 `exclude:` 下的块列表以及普通的 `mainBranch:` 值。
+本包附带 [`scripts/check-architecture.sh`](scripts/check-architecture.sh)，这是一个只使用 git 或 jj 的 POSIX shell 脚本。在 git 中，于 pre-commit hook 中运行 `check-architecture.sh staged`，可拒绝从链接 worktree 修改 manifest 或来源的提交。在 CI 中运行 `check-architecture.sh range origin/main HEAD`，会在标准输出列出分支修改的 manifest 与来源路径，让审阅者在合并前看到它们；它不会因此失败。`--manifest <path>` 读取其他 manifest 路径。在 jj 仓库中（共置与否均可），于 `jj git push` 之前运行 `check-architecture.sh working`，可拒绝从次级 workspace 对 manifest 或来源的工作副本修改；在 CI 中运行 `check-architecture.sh range main @-`，两个参数都是 revset。违规时退出码为 1，用法错误或无法读取的 manifest 为 2；它只读取 `sources:` 与 `exclude:` 下的块列表以及普通的 `mainBranch:` 值。
 
 -----
 
@@ -104,13 +104,13 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 | [src/repository.ts](src/repository.ts) | 同步的 git 与 jj checkout 发现 |
 | [src/vcs.ts](src/vcs.ts) | 版本控制查询接口与有界的命令运行器 |
 | [src/git-files.ts](src/git-files.ts) | Git 列举、已提交文件读取、状态与分支检查 |
-| [src/jj-files.ts](src/jj-files.ts) | Jujutsu 列举、已提交文件读取、状态与书签检查 |
+| [src/jj-files.ts](src/jj-files.ts) | Jujutsu 列举、已提交文件读取、状态与书签列举 |
 | [src/guard.ts](src/guard.ts) | 写入目标解析与受保护路径匹配 |
 | [src/citations.ts](src/citations.ts) | 引用解析，以及对照 `mainBranch` 的校验 |
 | [src/ruling.ts](src/ruling.ts) | 把提交校验为 Ruling |
 | [src/consultation.ts](src/consultation.ts) | 架构师 agent 运行与 `submit_ruling` |
 | [src/records.ts](src/records.ts) | Ruling、申诉与接受记录文件 |
-| [scripts/check-architecture.sh](scripts/check-architecture.sh) | 针对主分支之外来源修改的提交与 CI 检查 |
+| [scripts/check-architecture.sh](scripts/check-architecture.sh) | 针对主 checkout 之外来源修改的提交检查，以及列出提交范围来源修改的 CI 检查 |
 
 </details>
 
@@ -136,7 +136,7 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 
 #### 模型看到什么
 
-当 `write`、`edit` 或 `str_replace_editor` 调用的目标是受保护路径时，工具注册表返回错误结果而不运行该工具。文本为 `<path> is an architecture source. Architecture sources change only through the architecture agent on the main branch; do not edit them directly.`，其中 `<path>` 是绝对目标路径。当以 `architectPreset` 组合的 agent 调用 `architectTools` 之外的工具时，文本为 `The <tool> tool is unavailable to the architect: it discusses and records architecture and does not change code. Use the architecture tools instead.`。
+当 `write`、`edit` 或 `str_replace_editor` 调用的目标是受保护路径时，工具注册表返回错误结果而不运行该工具。文本为 `<path> is an architecture source. Architecture sources change only through the architecture agent; do not edit them directly.`，其中 `<path>` 是绝对目标路径。当以 `architectPreset` 组合的 agent 调用 `architectTools` 之外的工具时，文本为 `The <tool> tool is unavailable to the architect: it discusses and records architecture and does not change code. Use the architecture tools instead.`。
 
 #### Token 影响
 

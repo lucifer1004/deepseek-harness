@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -166,7 +166,7 @@ describe('ArchitectureService', () => {
     expect(result.content[0]).toEqual({ type: 'text', text: 'ran:write' })
   })
 
-  it('establishes a first manifest on the branch it declares, then protects every path its globs match', async () => {
+  it('establishes a first manifest on any branch, then protects every path its globs match', async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-architecture-cold-')))
     cleanups.push(() => rm(root, { recursive: true, force: true }))
     await writeFile(join(root, 'code.ts'), 'x\n')
@@ -174,16 +174,12 @@ describe('ArchitectureService', () => {
     git(root, 'add', '-A')
     git(root, 'commit', '-q', '-m', 'init')
     const ctx = await boot({ mainBranch: null })
-    const manifest = (branch: string): string => `mainBranch: ${branch}\nsources:\n  - docs/**/*.md\nexclude:\n  - docs/drafts/**\n`
 
-    // Without a main branch, only a manifest declaring the checkout's own branch may be written.
+    // Before a manifest exists, only the manifest path is protected, so only it may be written.
     expect(await ctx.architecture.edit({ cwd: root, path: 'docs/architecture.md', content: '# A\n' }))
-      .toMatchObject({ refusal: { kind: 'no-main-branch' } })
-    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: 'sources: [docs/*.md]\n' }))
-      .toMatchObject({ refusal: { kind: 'no-main-branch' } })
-    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: manifest('main') }))
-      .toMatchObject({ refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
-    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: manifest('trunk') }))
+      .toMatchObject({ refusal: { kind: 'not-protected' } })
+    // The branch a first manifest declares need not be the checkout's.
+    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: 'mainBranch: main\nsources:\n  - docs/**/*.md\nexclude:\n  - docs/drafts/**\n' }))
       .toEqual({ kind: 'written', path: 'architecture.yml' })
     expect(await ctx.architecture.rebuild(root)).toMatchObject({ sources: [] })
 
@@ -195,10 +191,11 @@ describe('ArchitectureService', () => {
     expect(await ctx.architecture.edit({ cwd: root, path: 'docs/sub/new.md', content: '# New\n' })).toEqual({ kind: 'written', path: 'docs/sub/new.md' })
     expect(ctx.architecture.index(root)?.sources).toEqual(['docs/sub/new.md'])
     expect(await ctx.architecture.edit({ cwd: root, path: 'docs/drafts/x.md', content: 'x' })).toMatchObject({ refusal: { kind: 'not-protected' } })
-    expect(await ctx.architecture.checkEdit(root, 'architecture.yml')).toBeUndefined()
+    expect(ctx.architecture.checkEdit(root, 'architecture.yml')).toBeUndefined()
   })
 
-  it('declares the main branch under the edit rule and lists the branches the checkout is on', async () => {
+  // A dozen git commands and a linked worktree outlast the default timeout on a loaded runner.
+  it('declares any local branch as the main branch from the primary checkout, and lists them all', { timeout: 30_000 }, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-architecture-branch-')))
     cleanups.push(() => rm(root, { recursive: true, force: true }))
     await mkdir(join(root, 'docs'))
@@ -207,24 +204,28 @@ describe('ArchitectureService', () => {
     git(root, 'init', '-q', '-b', 'trunk')
     git(root, 'add', '-A')
     git(root, 'commit', '-q', '-m', 'init')
+    git(root, 'branch', 'release/2')
+    const linked = join(root, '..', `${basename(root)}-linked`)
+    git(root, 'worktree', 'add', '-q', '-b', 'topic', linked)
+    cleanups.push(() => rm(linked, { recursive: true, force: true }))
     const ctx = await boot({ mainBranch: null })
-    expect(await ctx.architecture.snapshot(root)).toMatchObject({ currentBranches: ['trunk'] })
+    expect(await ctx.architecture.snapshot(root)).toMatchObject({ branches: { all: ['release/2', 'topic', 'trunk'], current: ['trunk'] } })
+    expect(await ctx.architecture.branches(linked)).toEqual({ vcs: 'git', isPrimary: false, current: ['topic'], all: ['release/2', 'topic', 'trunk'] })
     // The branch changes no section, yet the dashboard must learn of the new snapshot.
     const changes: string[] = []
     ctx.on('architecture/changed', (changed) => { changes.push(changed) })
 
-    // An undeclared branch may be one the checkout is on.
-    expect(await ctx.architecture.setMainBranch(root, 'main'))
-      .toMatchObject({ kind: 'refused', refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
-    expect(await ctx.architecture.setMainBranch(root, 'trunk')).toEqual({ kind: 'written', path: 'architecture.yml' })
-    expect(await readFile(join(root, 'architecture.yml'), 'utf8')).toBe('# Record\n\nmainBranch: "trunk"\nsources:\n  - docs/*.md\n')
-    expect((await ctx.architecture.snapshot(root)).mainBranch).toBe('trunk')
+    expect(await ctx.architecture.setMainBranch(root, 'release/2')).toEqual({ kind: 'written', path: 'architecture.yml' })
+    expect(await readFile(join(root, 'architecture.yml'), 'utf8')).toBe('# Record\n\nmainBranch: "release/2"\nsources:\n  - docs/*.md\n')
+    expect((await ctx.architecture.snapshot(root)).mainBranch).toBe('release/2')
     expect(changes).toEqual([root])
+    // From another branch too, because the checkout is primary.
+    expect(await ctx.architecture.setMainBranch(root, 'trunk')).toEqual({ kind: 'written', path: 'architecture.yml' })
 
-    // A declared branch changes only from that branch.
-    expect(await ctx.architecture.setMainBranch(root, 'main')).toEqual({ kind: 'written', path: 'architecture.yml' })
-    expect(await ctx.architecture.setMainBranch(root, 'trunk'))
-      .toMatchObject({ kind: 'refused', refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
+    const unknown = await ctx.architecture.setMainBranch(root, 'nope')
+    expect(unknown).toEqual({ kind: 'refused', refusal: { kind: 'unknown-branch', vcs: 'git', branch: 'nope' } })
+    if (unknown.kind === 'refused') expect(describeRefusal(unknown.refusal)).toBe('nope is not a local branch of this repository')
+    expect(await ctx.architecture.setMainBranch(linked, 'trunk')).toMatchObject({ refusal: { kind: 'linked-worktree' } })
     await expect(ctx.architecture.setMainBranch(root, 'a b')).rejects.toThrow(ManifestError)
     await rm(join(root, 'architecture.yml'))
     await expect(ctx.architecture.setMainBranch(root, 'trunk')).rejects.toThrow(/cannot read the manifest/)
@@ -246,7 +247,7 @@ describe('ArchitectureService', () => {
     expect(await run(ctx, architect, 'write', { file_path: 'src/code.ts' })).toMatch(/unavailable to the architect/)
   })
 
-  it('writes architecture files only in the primary worktree on mainBranch', async () => {
+  it('writes architecture files only in the primary worktree, on any branch', async () => {
     const { repo, linked } = await fixture()
     const ctx = await boot()
     await ctx.architecture.rebuild(repo)
@@ -267,36 +268,28 @@ describe('ArchitectureService', () => {
     expect(refusals.map(r => r.kind === 'refused' ? r.refusal.kind : r.kind)).toEqual(['linked-worktree', 'not-protected', 'not-protected', 'not-repository'])
     for (const r of refusals) if (r.kind === 'refused') expect(describeRefusal(r.refusal)).toMatch(/\S/)
 
+    // Another branch or a detached HEAD in the primary worktree may still write.
     git(repo, 'checkout', '-q', '-b', 'side')
-    const wrong = await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' })
-    expect(wrong).toEqual({ kind: 'refused', refusal: { kind: 'wrong-branch', vcs: 'git', branch: 'side', mainBranch: 'main' } })
-    if (wrong.kind === 'refused') expect(describeRefusal(wrong.refusal)).toMatch(/branch main/)
+    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: '# Side\n' })).toEqual({ kind: 'written', path: 'docs/architecture.md' })
     git(repo, 'checkout', '-q', '--detach')
-    const detached = await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' })
-    if (detached.kind === 'refused') expect(describeRefusal(detached.refusal)).toMatch(/detached HEAD/)
-    expect(await ctx.architecture.currentBranches(repo)).toEqual({ vcs: 'git', isPrimary: true, branches: [] })
+    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: '# Detached\n' })).toEqual({ kind: 'written', path: 'docs/architecture.md' })
+    expect(await ctx.architecture.branches(repo)).toEqual({ vcs: 'git', isPrimary: true, current: [], all: ['main', 'side', 'topic'] })
   })
 
-  it('takes the main branch from the manifest before the service default, and refuses edits without one', async () => {
+  it('takes the main branch from the manifest before the service default', async () => {
     const { repo } = await fixture()
-    git(repo, 'checkout', '-q', '-b', 'trunk')
     const ctx = await boot()
-    await ctx.architecture.rebuild(repo)
-    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' }))
-      .toMatchObject({ refusal: { kind: 'wrong-branch', branch: 'trunk', mainBranch: 'main' } })
+    expect(await ctx.architecture.snapshot(repo)).toMatchObject({ mainBranch: 'main' })
     // The manifest's branch wins over the default, from the next check on.
     await writeFile(join(repo, 'architecture.yml'), 'mainBranch: trunk\nsources:\n  - docs/**/*.md\n')
-    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: '# Architecture\n' }))
-      .toEqual({ kind: 'written', path: 'docs/architecture.md' })
     expect(await ctx.architecture.snapshot(repo)).toMatchObject({ mainBranch: 'trunk' })
 
-    // Without a default, a manifest that names no branch leaves the sources unchangeable.
+    // Without a default, a manifest that names no branch has no main branch, yet its sources stay editable.
     const bare = await boot({ mainBranch: null })
     await writeFile(join(repo, 'architecture.yml'), 'sources:\n  - docs/**/*.md\n')
-    const refused = await bare.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: 'x' })
-    expect(refused).toEqual({ kind: 'refused', refusal: { kind: 'no-main-branch', manifestPath: 'architecture.yml' } })
-    if (refused.kind === 'refused') expect(describeRefusal(refused.refusal)).toMatch(/architecture\.yml declares mainBranch/)
     expect(await bare.architecture.snapshot(repo)).not.toHaveProperty('mainBranch')
+    expect(await bare.architecture.edit({ cwd: repo, path: 'docs/architecture.md', content: '# Architecture\n' }))
+      .toEqual({ kind: 'written', path: 'docs/architecture.md' })
   })
 
   it('keeps its own instance off the generated Settings pages', () => omitsGeneratedPage(async (ctx) => {

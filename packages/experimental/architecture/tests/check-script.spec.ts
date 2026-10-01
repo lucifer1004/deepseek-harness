@@ -1,4 +1,4 @@
-/** The commit and CI check refuses architecture-source changes made outside the main branch's primary worktree. */
+/** The commit check refuses architecture-source changes made outside the primary checkout; the range check lists them. */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
@@ -30,6 +30,12 @@ function check(cwd: string, ...args: string[]): { status: number | null; stderr:
   return { status: result.status, stderr: result.stderr }
 }
 
+/** Run the range mode, which reports on stdout. */
+function range(cwd: string, ...args: string[]): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync('sh', [SCRIPT, ...args], { cwd, encoding: 'utf8', env: ENV })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
 /** A repository on `main` with a manifest, one source, and code; plus a linked worktree on `topic`. */
 async function fixture(manifest = 'sources:\n  - design/**/*.md  # all design docs\n  - "notes/*.md"\nexclude:\n  - \'**/*.zh.md\'\n') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-architecture-check-')))
@@ -49,29 +55,30 @@ async function fixture(manifest = 'sources:\n  - design/**/*.md  # all design do
 }
 
 describe('check-architecture.sh staged', () => {
-  it('allows source changes on the main branch in the primary worktree', async () => {
+  it('allows source changes in the primary worktree on any branch, including a detached HEAD', async () => {
     const { repo } = await fixture()
     await writeFile(join(repo, 'design', 'sub', 'arch.md'), '# Arch\n\nMore.\n')
     git(repo, 'add', '-A')
-    expect(check(repo, '--main-branch', 'main', 'staged')).toEqual({ status: 0, stderr: '' })
-  })
-
-  it('refuses source and manifest changes in a linked worktree or on another branch', async () => {
-    const { repo, linked } = await fixture()
-    await writeFile(join(linked, 'design', 'sub', 'arch.md'), '# Changed\n')
-    await writeFile(join(linked, 'notes.md'), 'not a source\n')
-    git(linked, 'add', '-A')
-    const worktree = check(linked, '--main-branch', 'main', 'staged')
-    expect(worktree.status).toBe(1)
-    expect(worktree.stderr).toBe('check-architecture: architecture sources change only on main in the primary worktree; '
-      + 'this commit is on a linked worktree and changes:\n  design/sub/arch.md\n')
-
+    expect(check(repo, 'staged')).toEqual({ status: 0, stderr: '' })
     git(repo, 'checkout', '-q', '-b', 'feature')
     await writeFile(join(repo, 'architecture.yml'), 'sources:\n  - design/**/*.md\n')
     git(repo, 'add', '-A')
-    expect(check(repo, '--main-branch', 'main', 'staged').stderr).toMatch(/this commit is on branch feature and changes:\n {2}architecture\.yml\n$/)
+    expect(check(repo, 'staged')).toEqual({ status: 0, stderr: '' })
     git(repo, 'checkout', '-q', '--detach')
-    expect(check(repo, '--main-branch', 'main', 'staged').stderr).toMatch(/on branch \(detached HEAD\)/)
+    expect(check(repo, 'staged')).toEqual({ status: 0, stderr: '' })
+  })
+
+  it('refuses source and manifest changes in a linked worktree', async () => {
+    const { linked } = await fixture()
+    await writeFile(join(linked, 'design', 'sub', 'arch.md'), '# Changed\n')
+    await writeFile(join(linked, 'architecture.yml'), 'mainBranch: topic\nsources:\n  - design/**/*.md\n')
+    await writeFile(join(linked, 'notes.md'), 'not a source\n')
+    git(linked, 'add', '-A')
+    expect(check(linked, 'staged')).toEqual({
+      status: 1,
+      stderr: 'check-architecture: architecture sources change only in the primary worktree; this commit from a linked worktree changes:\n'
+        + '  architecture.yml\n  design/sub/arch.md\n',
+    })
   })
 
   it('ignores code, excluded sources, and repositories without a manifest', async () => {
@@ -79,26 +86,9 @@ describe('check-architecture.sh staged', () => {
     await writeFile(join(linked, 'src', 'code.ts'), 'y\n')
     await writeFile(join(linked, 'design', 'sub', 'arch.zh.md'), '# 架构\n')
     git(linked, 'add', '-A')
-    expect(check(linked, '--main-branch', 'main', 'staged').status).toBe(0)
+    expect(check(linked, 'staged').status).toBe(0)
     await rm(join(repo, 'architecture.yml'))
-    expect(check(repo, '--main-branch', 'main', 'staged').status).toBe(0)
-  })
-
-  it('takes the main branch from the manifest before --main-branch, and refuses changes when neither names one', async () => {
-    const { repo } = await fixture('mainBranch: "trunk"  # declared\nsources:\n  - design/**/*.md\n')
-    await writeFile(join(repo, 'design', 'sub', 'arch.md'), '# Changed\n')
-    git(repo, 'add', '-A')
-    expect(check(repo, '--main-branch', 'main', 'staged').stderr).toMatch(/change only on trunk in the primary worktree; this commit is on branch main/)
-    git(repo, 'checkout', '-q', '-b', 'trunk')
-    expect(check(repo, 'staged')).toEqual({ status: 0, stderr: '' })
-
-    await writeFile(join(repo, 'architecture.yml'), 'sources:\n  - design/**/*.md\n')
-    git(repo, 'add', '-A')
-    expect(check(repo, 'staged')).toEqual({
-      status: 1,
-      stderr: 'check-architecture: architecture.yml declares no mainBranch and --main-branch is not given, so no branch may change '
-        + 'architecture sources; this commit changes:\n  architecture.yml\n  design/sub/arch.md\n',
-    })
+    expect(check(repo, 'staged').status).toBe(0)
   })
 
   it('reads a custom manifest path', async () => {
@@ -108,42 +98,43 @@ describe('check-architecture.sh staged', () => {
     git(linked, 'merge', '-q', 'main')
     await writeFile(join(linked, 'design', 'sub', 'arch.md'), '# Changed\n')
     git(linked, 'add', '-A')
-    expect(check(linked, '--main-branch', 'main', 'staged').status).toBe(0)
-    expect(check(linked, '--main-branch', 'main', '--manifest', 'arch.yml', 'staged').status).toBe(1)
+    expect(check(linked, 'staged').status).toBe(0)
+    expect(check(linked, '--manifest', 'arch.yml', 'staged').status).toBe(1)
   })
 })
 
 describe('check-architecture.sh range', () => {
-  it('refuses a range that changes sources and allows one that does not', async () => {
-    const { repo, linked } = await fixture()
+  it('lists the sources a range changes without failing', async () => {
+    const { repo, linked } = await fixture('mainBranch: main\nsources:\n  - design/**/*.md\n')
     await writeFile(join(linked, 'src', 'code.ts'), 'y\n')
     git(linked, 'commit', '-q', '-am', 'code')
-    expect(check(linked, '--main-branch', 'main', 'range', 'main', 'HEAD').status).toBe(0)
+    expect(range(linked, 'range', 'main', 'HEAD')).toEqual({ status: 0, stdout: '', stderr: '' })
     await writeFile(join(linked, 'design', 'sub', 'arch.md'), '# Changed\n')
     git(linked, 'commit', '-q', '-am', 'doc')
-    const refused = check(linked, '--main-branch', 'main', 'range', 'main', 'HEAD')
-    expect(refused).toEqual({ status: 1, stderr: 'check-architecture: architecture sources change only on main; main...HEAD changes:\n  design/sub/arch.md\n' })
-    expect(check(linked, 'range', 'main', 'HEAD').stderr).toMatch(/^check-architecture: architecture sources change only on the main branch the manifest declares; /)
-    // A head without a manifest has nothing to check.
+    expect(range(linked, 'range', 'main', 'HEAD')).toEqual({
+      status: 0,
+      stdout: 'check-architecture: main...HEAD changes architecture sources; review them before merging:\n  design/sub/arch.md\n',
+      stderr: '',
+    })
+    // A head without a manifest has nothing to list.
     git(repo, 'rm', '-q', 'architecture.yml')
     git(repo, 'commit', '-q', '-m', 'drop')
-    expect(check(repo, '--main-branch', 'main', 'range', 'topic', 'main').status).toBe(0)
+    expect(range(repo, 'range', 'topic', 'main')).toEqual({ status: 0, stdout: '', stderr: '' })
   })
 })
 
 describe('check-architecture.sh errors', () => {
   it('rejects bad usage', async () => {
     const { repo } = await fixture()
-    for (const args of [[], ['--main-branch'], ['--main-branch', 'main'], ['--main-branch', 'main', 'staged', 'extra'],
-      ['--main-branch', 'main', 'range', 'a'], ['--main-branch', 'main', 'other'], ['--bogus'], ['--manifest']]) {
+    for (const args of [[], ['staged', 'extra'], ['range', 'a'], ['other'], ['--bogus'], ['--main-branch', 'main', 'staged'], ['--manifest']]) {
       const result = check(repo, ...args)
       expect(result.status).toBe(2)
       expect(result.stderr).toMatch(/^usage: /)
     }
-    expect(check(repo, '--main-branch', 'main', '--', 'staged').status).toBe(0)
+    expect(check(repo, '--', 'staged').status).toBe(0)
     const outside = await realpath(await mkdtemp(join(tmpdir(), 'dsh-architecture-check-outside-')))
     cleanups.push(() => rm(outside, { recursive: true, force: true }))
-    expect(check(outside, '--main-branch', 'main', 'staged')).toEqual({ status: 2, stderr: 'check-architecture: not inside a git or jj checkout\n' })
+    expect(check(outside, 'staged')).toEqual({ status: 2, stderr: 'check-architecture: not inside a git or jj checkout\n' })
     expectFailure(check(repo, 'working'), 2, /working mode checks jj repositories/)
   })
 
@@ -155,7 +146,7 @@ describe('check-architecture.sh errors', () => {
     ['a spaced main branch', 'mainBranch: a b\nsources:\n  - x\n', /architecture\.yml:1: mainBranch must be one branch name/],
   ])('refuses a manifest it cannot read: %s', async (_name, manifest, message) => {
     const { repo } = await fixture(manifest)
-    const result = check(repo, '--main-branch', 'main', 'staged')
+    const result = check(repo, 'staged')
     expect(result.status).toBe(2)
     expect(result.stderr).toMatch(message)
   })
@@ -180,59 +171,55 @@ describe.skipIf(!hasJj())('check-architecture.sh in a jj repository', { timeout:
     return { root, repo }
   }
 
-  it('allows source changes in a child of main in the primary workspace, from any directory', async () => {
+  it('allows source changes in the primary workspace wherever the working copy is, from any directory', async () => {
     const { repo } = await jjFixture()
     await writeFile(join(repo, 'design', 'sub', 'arch.md'), '# Arch\n\nMore.\n')
     expect(check(repo, 'working')).toEqual({ status: 0, stderr: '' })
     expect(check(join(repo, 'design'), 'working')).toEqual({ status: 0, stderr: '' })
-    // main itself may be the working-copy commit.
-    jj(repo, 'edit', 'main')
-    await writeFile(join(repo, 'design', 'sub', 'arch.md'), '# Arch\n\nOn main.\n')
+    // Two commits past main, far from any bookmark.
+    jj(repo, 'new')
+    await writeFile(join(repo, 'architecture.yml'), 'mainBranch: main\nsources:\n  - design/**/*.md\n')
     expect(check(repo, 'working')).toEqual({ status: 0, stderr: '' })
   })
 
-  it('refuses source and manifest changes past the child of main or in a secondary workspace, and ignores code and excludes', async () => {
+  it('refuses source and manifest changes in a secondary workspace, and ignores code and excludes', async () => {
     const { root, repo } = await jjFixture()
-    jj(repo, 'new')
-    await writeFile(join(repo, 'src', 'code.ts'), 'y\n')
-    await writeFile(join(repo, 'design', 'sub', 'arch.zh.md'), '# 中文\n')
-    expect(check(repo, 'working')).toEqual({ status: 0, stderr: '' })
-    await writeFile(join(repo, 'design', 'sub', 'new.md'), '# New\n')
-    await writeFile(join(repo, 'architecture.yml'), 'mainBranch: main\nsources:\n  - design/**/*.md\n')
-    expect(check(repo, 'working')).toEqual({
-      status: 1,
-      stderr: 'check-architecture: architecture sources change only on bookmark main in the primary workspace; '
-        + 'this is a working copy that is neither main nor its child, and it changes:\n  architecture.yml\n  design/sub/arch.zh.md\n  design/sub/new.md\n',
-    })
-
     const second = join(root, 'second')
     jj(repo, 'workspace', 'add', '-r', 'main', second)
-    await writeFile(join(second, 'design', 'sub', 'arch.md'), '# Changed\n')
-    expectFailure(check(second, 'working'), 1, /this is a secondary workspace, and it changes:\n {2}design\/sub\/arch\.md\n$/)
+    await writeFile(join(second, 'src', 'code.ts'), 'y\n')
+    await writeFile(join(second, 'design', 'sub', 'arch.zh.md'), '# 中文\n')
+    expect(check(second, 'working')).toEqual({ status: 0, stderr: '' })
+    await writeFile(join(second, 'design', 'sub', 'new.md'), '# New\n')
+    await writeFile(join(second, 'architecture.yml'), 'mainBranch: main\nsources:\n  - design/**/*.md\n')
+    expect(check(second, 'working')).toEqual({
+      status: 1,
+      stderr: 'check-architecture: architecture sources change only in the primary workspace; this secondary workspace changes:\n'
+        + '  architecture.yml\n  design/sub/arch.zh.md\n  design/sub/new.md\n',
+    })
   })
 
-  it('refuses every source change without a main branch, and reads --main-branch for a manifest that declares none', async () => {
-    const { repo } = await jjFixture('sources:\n  - design/*.md\n')
-    await writeFile(join(repo, 'design', 'a.md'), '# A\n')
-    expectFailure(check(repo, 'working'), 1, /declares no mainBranch/)
-    expect(check(repo, '--main-branch', 'main', 'working')).toEqual({ status: 0, stderr: '' })
-    expectFailure(check(repo, '--main-branch', 'trunk', 'working'), 1, /neither trunk nor its child/)
+  it('diffs a secondary workspace from its parent when the manifest declares no main branch', async () => {
+    const { root, repo } = await jjFixture('sources:\n  - design/*.md\n')
+    const second = join(root, 'second')
+    jj(repo, 'workspace', 'add', '-r', 'main', second)
+    await writeFile(join(second, 'design', 'a.md'), '# A\n')
+    expectFailure(check(second, 'working'), 1, /this secondary workspace changes:\n {2}design\/a\.md\n$/)
   })
 
-  it('checks a revset range against the manifest at its head', async () => {
+  it('lists the sources a revset range changes against the manifest at its head, without failing', async () => {
     const { repo } = await jjFixture()
     jj(repo, 'describe', '-m', 'code')
     await writeFile(join(repo, 'src', 'code.ts'), 'y\n')
     jj(repo, 'new')
-    expect(check(repo, 'range', 'main', '@-')).toEqual({ status: 0, stderr: '' })
+    expect(range(repo, 'range', 'main', '@-')).toEqual({ status: 0, stdout: '', stderr: '' })
     await writeFile(join(repo, 'design', 'sub', 'arch.md'), '# Changed\n')
     jj(repo, 'describe', '-m', 'source')
     jj(repo, 'new')
-    expect(check(repo, 'range', 'main', '@-')).toEqual({
-      status: 1, stderr: 'check-architecture: architecture sources change only on main; main...@- changes:\n  design/sub/arch.md\n',
+    expect(range(repo, 'range', 'main', '@-')).toEqual({
+      status: 0, stdout: 'check-architecture: main...@- changes architecture sources; review them before merging:\n  design/sub/arch.md\n', stderr: '',
     })
-    // A head without a manifest has nothing to check; a revset that names no commit is an error.
-    expect(check(repo, 'range', 'root()', 'root()')).toEqual({ status: 0, stderr: '' })
+    // A head without a manifest has nothing to list; a revset that names no commit is an error.
+    expect(range(repo, 'range', 'root()', 'root()')).toEqual({ status: 0, stdout: '', stderr: '' })
     expect(check(repo, 'range', 'main', 'nope').status).toBe(2)
     expect(check(repo, 'range', 'nope', '@-').status).toBe(2)
   })
@@ -256,8 +243,9 @@ describe.skipIf(!hasJj())('check-architecture.sh in a jj repository', { timeout:
     await writeFile(join(colocated, 'architecture.yml'), 'mainBranch: main\nsources:\n  - "*.md"\n')
     jj(colocated, 'bookmark', 'create', 'main', '-r', '@')
     jj(colocated, 'new')
-    jj(colocated, 'new')
-    await writeFile(join(colocated, 'a "quoted" \\ name.md'), '# A\n')
-    expectFailure(check(colocated, 'working'), 1, /\n {2}a "quoted" \\ name\.md\n$/)
+    const second = join(root, 'second')
+    jj(colocated, 'workspace', 'add', '-r', 'main', second)
+    await writeFile(join(second, 'a "quoted" \\ name.md'), '# A\n')
+    expectFailure(check(second, 'working'), 1, /\n {2}a "quoted" \\ name\.md\n$/)
   })
 })

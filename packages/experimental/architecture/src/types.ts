@@ -105,11 +105,21 @@ export interface CheckoutState {
 export type EditRefusal =
   | { readonly kind: 'not-repository'; readonly cwd: string }
   | { readonly kind: 'linked-worktree'; readonly root: string; readonly primaryRoot: string }
-  | { readonly kind: 'wrong-branch'; readonly vcs: VcsKind; readonly branch: string | undefined; readonly mainBranch: string }
-  | { readonly kind: 'no-main-branch'; readonly manifestPath: string }
+  | { readonly kind: 'unknown-branch'; readonly vcs: VcsKind; readonly branch: string }
   | { readonly kind: 'not-protected'; readonly path: string }
   | { readonly kind: 'unknown-section'; readonly path: string; readonly anchor: string }
   | { readonly kind: 'stale-section'; readonly path: string; readonly anchor: string; readonly hash: SectionHash }
+
+/** The version control of one checkout and its repository's local branches. */
+export interface CheckoutBranches {
+  readonly vcs: VcsKind
+  /** Whether the checkout is the primary worktree or jj workspace, where architecture files change. */
+  readonly isPrimary: boolean
+  /** Branch or bookmark names the checkout is on now. */
+  readonly current: readonly string[]
+  /** Every local branch or bookmark, sorted. */
+  readonly all: readonly string[]
+}
 
 /** One validated write of an architecture file or one of its sections. */
 export interface ArchitectureEditRequest {
@@ -304,8 +314,13 @@ export interface ArchitectureSnapshot {
   readonly revision: string
   /** The index, empty without a manifest. */
   readonly index: ArchitectureIndex
-  /** Branches or jj bookmarks the primary checkout is on, which `setMainBranch` may declare; absent when `unsupported` is set. */
-  readonly currentBranches?: readonly string[]
+  /** The repository's local branches or jj bookmarks, which `setMainBranch` may declare; absent when `unsupported` is set. */
+  readonly branches?: {
+    /** Every local branch or bookmark, sorted. */
+    readonly all: readonly string[]
+    /** The ones the primary checkout is on: git's `HEAD` branch, or jj bookmarks at `@` or `@-`. */
+    readonly current: readonly string[]
+  }
   /** Version-control state of each indexed source. */
   readonly sourceStatus: Readonly<Record<string, GitFileStatus>>
   /** Recorded Rulings, newest first, each with whether a cited section changed since issue. */

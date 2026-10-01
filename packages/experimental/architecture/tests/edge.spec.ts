@@ -125,6 +125,9 @@ describe('GitFiles', () => {
       .toEqual({ 'a.md': 'modified', 'new.md': 'untracked', 'ign.md': 'ignored' })
     expect((await files.status(repo, undefined, [], undefined)).size).toBe(0)
     await expect(files.status(await scratch(), undefined, ['a.md'], undefined)).rejects.toThrow(/git status failed/)
+    const outside = await scratch()
+    await expect(files.branches({ vcs: 'git', root: outside, primaryRoot: outside, isPrimary: true, branch: undefined }, undefined))
+      .rejects.toThrow(/git for-each-ref failed/)
 
     const fake = join(repo, 'fake-git')
     await writeFile(fake, '#!/bin/sh\nprintf \' M a.md\\0partial\'\n', { mode: 0o755 })

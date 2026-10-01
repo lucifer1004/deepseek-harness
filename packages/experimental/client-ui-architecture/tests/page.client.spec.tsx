@@ -295,41 +295,43 @@ describe('ArchitecturePage', () => {
     expect(screen.getByText(/此仓库还没有 architecture.yml/)).toBeTruthy()
   })
 
-  it('declares the main branch from the branches the checkout is on and reports the outcome', async () => {
-    const { props, dashboard } = fixture({ snapshot: undeclared({ currentBranches: ['trunk', 'dev'] }) })
+  it('declares any local branch as the main branch, marks the current ones, and reports the outcome', async () => {
+    const { props, dashboard } = fixture({ snapshot: undeclared({ branches: { all: ['dev', 'main', 'trunk'], current: ['trunk'] } }) })
     tab(zh['tab.settings'])
-    const branch = screen.getByLabelText(zh['settings.mainBranch']) as HTMLSelectElement
-    expect(branch.value).toBe('trunk')
-    expect([...branch.options].map(option => option.textContent)).toEqual([zh['settings.mainBranch.none'], 'trunk · 当前所在', 'dev · 当前所在'])
+    const branch = screen.getByLabelText<HTMLSelectElement>(zh['settings.mainBranch'])
+    expect(branch.value).toBe('')
+    expect([...branch.options].map(option => option.textContent)).toEqual([zh['settings.mainBranch.choose'], 'dev', 'main', 'trunk · 当前所在'])
     expect(screen.getByText(zh['settings.mainBranch.hint'])).toBeTruthy()
-    expect(screen.queryByText(zh['settings.mainBranch.rule'])).toBeNull()
+    const write = screen.getByRole<HTMLButtonElement>('button', { name: zh['settings.mainBranch.apply'] })
+    expect(write.disabled).toBe(true)
     // Without a settings client there is no profile group.
     expect(screen.queryByText(zh['settings.profile'])).toBeNull()
-    fireEvent.change(branch, { target: { value: 'dev' } })
-    fireEvent.click(screen.getByRole('button', { name: zh['settings.mainBranch.apply'] }))
-    await waitFor(() => { expect(props.setMainBranch).toHaveBeenCalledWith(WS, 'dev') })
+    fireEvent.change(branch, { target: { value: 'main' } })
+    fireEvent.click(write)
+    await waitFor(() => { expect(props.setMainBranch).toHaveBeenCalledWith(WS, 'main') })
     expect(await screen.findByText('已写入 architecture.yml，请审阅并提交')).toBeTruthy()
 
-    // A declared branch the checkout has left is still listed, and the write needs a different choice.
-    props.setMainBranch.mockResolvedValueOnce('architecture sources change only on branch main')
-    dashboard.set({ ...dashboard.getSnapshot(), snapshot: snapshot({ vcs: 'jj', mainBranch: 'main', currentBranches: ['dev'] }) })
-    await waitFor(() => { expect(branch.value).toBe('main') })
+    // A declared branch that no longer exists is still listed, and the write needs a different choice.
+    props.setMainBranch.mockResolvedValueOnce('dev is not a local bookmark of this repository')
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: snapshot({ vcs: 'jj', mainBranch: 'gone', branches: { all: ['dev'], current: [] } }) })
+    await waitFor(() => { expect(branch.value).toBe('gone') })
+    expect([...branch.options].map(option => option.textContent)).toEqual(['gone', 'dev'])
     expect(screen.getByText(zh['settings.mainBranch.hint.jj'])).toBeTruthy()
-    expect(screen.getByText(zh['settings.mainBranch.rule'])).toBeTruthy()
-    const write = screen.getByRole('button', { name: zh['settings.mainBranch.apply'] }) as HTMLButtonElement
     expect(write.disabled).toBe(true)
     fireEvent.change(branch, { target: { value: 'dev' } })
     fireEvent.click(write)
-    expect(await screen.findByText('未能写入：architecture sources change only on branch main')).toBeTruthy()
+    expect(await screen.findByText('未能写入：dev is not a local bookmark of this repository')).toBeTruthy()
   })
 
-  it('explains why the main branch cannot be declared', () => {
-    const { dashboard } = fixture({ snapshot: undeclared({ hasManifest: false, currentBranches: ['main'] }) })
+  it('explains why the main branch cannot be declared', async () => {
+    const { dashboard } = fixture({ snapshot: undeclared({ hasManifest: false, branches: { all: ['main'], current: ['main'] } }) })
     tab(zh['tab.settings'])
     expect(screen.getByText('此仓库还没有 architecture.yml，请先开启架构讨论建立它')).toBeTruthy()
     expect(screen.getByLabelText<HTMLSelectElement>(zh['settings.mainBranch']).disabled).toBe(true)
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: undeclared() })
-    return waitFor(() => { expect(screen.getByText(zh['settings.mainBranch.noBranches'])).toBeTruthy() })
+    await waitFor(() => { expect(screen.getByText(zh['settings.mainBranch.noBranches'])).toBeTruthy() })
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: undeclared({ vcs: 'jj' }) })
+    await waitFor(() => { expect(screen.getByText(zh['settings.mainBranch.noBookmarks'])).toBeTruthy() })
   })
 
   it('stages the architect model and its reasoning effort, then saves', async () => {

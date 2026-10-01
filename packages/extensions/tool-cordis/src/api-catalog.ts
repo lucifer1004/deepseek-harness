@@ -415,10 +415,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Workspace architecture sources, index, and edit rule.',
     methods: [
       {
-        signature: 'async currentBranches(cwd: string, signal?: AbortSignal): Promise<{ vcs: VcsKind; isPrimary: boolean; branches: readonly string[] }>',
-        description: 'The version control of the checkout containing a directory, and the branches it is on now.',
-        parameters: [{ name: 'cwd', description: 'absolute directory inside the checkout.' }, { name: 'signal', description: 'cancels a jj query.' }],
-        returns: 'the system, whether the checkout is the primary one, and its current branch or bookmark names.',
+        signature: 'async branches(cwd: string, signal?: AbortSignal): Promise<CheckoutBranches>',
+        description: 'The version control of the checkout containing a directory and the repository\'s local branches.',
+        parameters: [{ name: 'cwd', description: 'absolute directory inside the checkout.' }, { name: 'signal', description: 'cancels git and jj queries.' }],
+        returns: 'the system, whether the checkout is the primary one, the branch or bookmark names it is on now, and every local branch or bookmark.',
         throws: ['when `cwd` is not inside a usable git or jj checkout, or version control fails.'],
       },
       {
@@ -448,7 +448,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async edit(request: ArchitectureEditRequest): Promise<ArchitectureEditResult>',
-        description: 'Write one architecture file, or replace one of its indexed sections, under the main-branch edit rule. The target must be the manifest, an indexed source, or a path under the local directory, and the checkout must be the primary worktree on `mainBranch`. A section edit reads the current file, refuses when the section is missing or its hash differs from `expectedHash`, and replaces the section\'s lines. The write replaces the file atomically and rebuilds the index.',
+        description: 'Write one architecture file, or replace one of its indexed sections, under the edit rule. The target must be the manifest, an indexed source, or a path under the local directory, and the checkout must be the primary worktree or jj workspace, on any branch. A section edit reads the current file, refuses when the section is missing or its hash differs from `expectedHash`, and replaces the section\'s lines. The write replaces the file atomically and rebuilds the index.',
         parameters: [{ name: 'request', description: 'Session directory, target, optional section, and content.' }],
         returns: 'the written path, or the refusal.',
       },
@@ -505,15 +505,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult>',
-        description: 'Declare the repository\'s main branch in its manifest. The write follows the edit rule: a repository that declares no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.',
-        parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }, { name: 'branch', description: 'the branch or jj bookmark to declare.' }, { name: 'signal', description: 'cancels jj queries.' }],
+        description: 'Declare the repository\'s main branch in its manifest, from the primary checkout. The branch must be one of the repository\'s local branches or bookmarks.',
+        parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }, { name: 'branch', description: 'the branch or jj bookmark to declare.' }, { name: 'signal', description: 'cancels git and jj queries.' }],
         returns: 'the written manifest path, or the refusal.',
         throws: ['{ManifestError} when the repository has no valid manifest or `branch` is not a branch name.'],
       },
       {
-        signature: 'async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined>',
-        description: 'Evaluate the edit rule without writing. A repository without a main branch may still receive its first manifest: `content` written to the manifest path that declares the branch the checkout is on.',
-        parameters: [{ name: 'cwd', description: 'Session directory.' }, { name: 'path', description: 'target, relative to the repository root or absolute.' }, { name: 'content', description: 'the content {@link edit} would write; only a first manifest reads it.' }, { name: 'signal', description: 'cancels a jj branch query.' }],
+        signature: 'checkEdit(cwd: string, path: string): EditRefusal | undefined',
+        description: 'Evaluate the edit rule without writing: architecture files change only in the primary checkout, on any branch.',
+        parameters: [{ name: 'cwd', description: 'Session directory.' }, { name: 'path', description: 'target, relative to the repository root or absolute.' }],
         returns: 'the refusal, or undefined when {@link edit} would write.',
       },
     ],
@@ -4756,7 +4756,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ArchitectureSnapshot',
-    declaration: 'export interface ArchitectureSnapshot {\n    readonly root: string;\n    readonly vcs?: VcsKind;\n    readonly unsupported?: {\n        readonly kind: \'no-repository\';\n    } | {\n        readonly kind: \'vcs-missing\';\n        readonly vcs: VcsKind;\n    };\n    readonly mainBranch?: string;\n    readonly manifestPath: string;\n    readonly localDirectory: string;\n    readonly hasManifest: boolean;\n    readonly revision: string;\n    readonly index: ArchitectureIndex;\n    readonly currentBranches?: readonly string[];\n    readonly sourceStatus: Readonly<Record<string, GitFileStatus>>;\n    readonly rulings: ReadonlyArray<RulingRecord & {\n        readonly stale: boolean;\n    }>;\n    readonly appeals: readonly AppealRecord[];\n    readonly acceptances: readonly Acceptance[];\n    readonly localEntries: readonly LocalEntry[];\n    readonly problems: ReadonlyArray<{\n        readonly file: string;\n        readonly message: string;\n    }>;\n}',
+    declaration: 'export interface ArchitectureSnapshot {\n    readonly root: string;\n    readonly vcs?: VcsKind;\n    readonly unsupported?: {\n        readonly kind: \'no-repository\';\n    } | {\n        readonly kind: \'vcs-missing\';\n        readonly vcs: VcsKind;\n    };\n    readonly mainBranch?: string;\n    readonly manifestPath: string;\n    readonly localDirectory: string;\n    readonly hasManifest: boolean;\n    readonly revision: string;\n    readonly index: ArchitectureIndex;\n    readonly branches?: {\n        readonly all: readonly string[];\n        readonly current: readonly string[];\n    };\n    readonly sourceStatus: Readonly<Record<string, GitFileStatus>>;\n    readonly rulings: ReadonlyArray<RulingRecord & {\n        readonly stale: boolean;\n    }>;\n    readonly appeals: readonly AppealRecord[];\n    readonly acceptances: readonly Acceptance[];\n    readonly localEntries: readonly LocalEntry[];\n    readonly problems: ReadonlyArray<{\n        readonly file: string;\n        readonly message: string;\n    }>;\n}',
   },
   {
     name: 'ArchiveSessionOptions',
@@ -4929,6 +4929,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ChangeResult',
     declaration: 'export interface ChangeResult {\n    changed: boolean;\n    application: \'applied\' | \'restart-required\' | \'overridden\' | \'failed\' | \'cancelled\';\n    stage: \'install\' | \'enable\' | \'remove\';\n    target: string;\n    enabled?: boolean;\n    error?: ManagementError;\n    warnings?: string[];\n    packageResult?: PackageResult;\n    bundle?: string;\n    pendingBuilds?: string[];\n    approvedBuilds?: string[];\n    registries?: Registry[];\n    failedAt?: \'registry\' | \'spec-host\';\n}',
+  },
+  {
+    name: 'CheckoutBranches',
+    declaration: 'export interface CheckoutBranches {\n    readonly vcs: VcsKind;\n    readonly isPrimary: boolean;\n    readonly current: readonly string[];\n    readonly all: readonly string[];\n}',
   },
   {
     name: 'CheckoutState',
@@ -5376,7 +5380,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EditRefusal',
-    declaration: 'export type EditRefusal = {\n    readonly kind: \'not-repository\';\n    readonly cwd: string;\n} | {\n    readonly kind: \'linked-worktree\';\n    readonly root: string;\n    readonly primaryRoot: string;\n} | {\n    readonly kind: \'wrong-branch\';\n    readonly vcs: VcsKind;\n    readonly branch: string | undefined;\n    readonly mainBranch: string;\n} | {\n    readonly kind: \'no-main-branch\';\n    readonly manifestPath: string;\n} | {\n    readonly kind: \'not-protected\';\n    readonly path: string;\n} | {\n    readonly kind: \'unknown-section\';\n    readonly path: string;\n    readonly anchor: string;\n} | {\n    readonly kind: \'stale-section\';\n    readonly path: string;\n    readonly anchor: string;\n    readonly hash: SectionHash;\n};',
+    declaration: 'export type EditRefusal = {\n    readonly kind: \'not-repository\';\n    readonly cwd: string;\n} | {\n    readonly kind: \'linked-worktree\';\n    readonly root: string;\n    readonly primaryRoot: string;\n} | {\n    readonly kind: \'unknown-branch\';\n    readonly vcs: VcsKind;\n    readonly branch: string;\n} | {\n    readonly kind: \'not-protected\';\n    readonly path: string;\n} | {\n    readonly kind: \'unknown-section\';\n    readonly path: string;\n    readonly anchor: string;\n} | {\n    readonly kind: \'stale-section\';\n    readonly path: string;\n    readonly anchor: string;\n    readonly hash: SectionHash;\n};',
   },
   {
     name: 'EncodedFileAttachment',

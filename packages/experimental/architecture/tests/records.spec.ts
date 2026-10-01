@@ -235,7 +235,8 @@ describe('architecture records', () => {
     const { steer } = liveWorker(ctx, repo)
     const agent = { id: WORKER, session: { header: { cwd: repo } }, steer } as never as Agent
     await ctx.serial('agent/created', { agent, source: 'startup' })
-    await vi.waitFor(async () => { expect((await ctx.architecture.snapshot(repo)).appeals[0]?.delivered).toBe(true) })
+    // One snapshot spawns several git commands, which can outlast waitFor's default one-second timeout.
+    await vi.waitFor(async () => { expect((await ctx.architecture.snapshot(repo)).appeals[0]?.delivered).toBe(true) }, { timeout: 10_000 })
     expect(steer).toHaveBeenCalledOnce()
 
     const warn = vi.spyOn(ctx.logger, 'warn')

@@ -60,20 +60,21 @@ export interface VcsFiles {
     signal: AbortSignal | undefined,
   ): Promise<ReadonlyMap<string, ChangedStatus>>
   /**
-   * Whether a checkout is on the main branch, where architecture sources may change.
-   * @param checkout - the checkout.
-   * @param branch - git branch or jj bookmark name.
-   * @param signal - cancels the query.
-   * @returns true on the branch.
-   */
-  onBranch(checkout: CheckoutState, branch: string, signal: AbortSignal | undefined): Promise<boolean>
-  /**
-   * The branches a checkout is on: names that {@link onBranch} accepts for it.
+   * The repository's local branches or bookmarks, any of which `mainBranch` may name.
    * @param checkout - the checkout.
    * @param signal - cancels the query.
-   * @returns branch or bookmark names, sorted; empty on a detached `HEAD` or without a bookmark at `@` or `@-`.
+   * @returns every local name, sorted, and the ones the checkout is on: git's `HEAD` branch, or jj bookmarks at `@` or
+   * `@-`.
    */
-  currentBranches(checkout: CheckoutState, signal: AbortSignal | undefined): Promise<readonly string[]>
+  branches(checkout: CheckoutState, signal: AbortSignal | undefined): Promise<BranchList>
+}
+
+/** A repository's local branches or bookmarks. */
+export interface BranchList {
+  /** Every local branch or bookmark, sorted. */
+  readonly all: readonly string[]
+  /** The ones the checkout is on, sorted. */
+  readonly current: readonly string[]
 }
 
 /** One finished command. */

@@ -20,7 +20,7 @@ export const inject = ['architecture', 'tools', 'systemPrompt']
 export const ARCHITECT_POLICY = [
   'You are the architecture agent for this workspace. You discuss, record, and defend its architecture; you do not change code.',
   'The architecture record is the set of documents listed in the manifest. Use `architecture_index` to see its sections and `architecture_read` to read one. Read code and other files with the read and search tools, and use web search and fetch for external references such as library documentation and prior art.',
-  'Change the record only with `architecture_edit`, and only after the user agrees to the exact change. Prefer replacing one section, passing the hash you read, over rewriting a whole file. Edits land in the primary worktree on the main branch; the user reviews and commits them.',
+  'Change the record only with `architecture_edit`, and only after the user agrees to the exact change. Prefer replacing one section, passing the hash you read, over rewriting a whole file. Edits land in the primary checkout on whatever branch it is on; the user reviews them and commits them to the main branch, and only then do they bind workers.',
   'When you state a binding requirement, cite the section that establishes it as `path#anchor`. A judgment without such a section is an open question for the user, not a requirement.',
 ].join('\n\n')
 
@@ -28,9 +28,9 @@ export const ARCHITECT_POLICY = [
 export const COLD_START_GUIDANCE = [
   'This workspace has no architecture manifest yet. To establish the record with the user:',
   '1. Survey the code and existing design documents (README, ADRs, design notes) with the read and search tools.',
-  '2. Propose the manifest: `mainBranch`, the branch or jj bookmark the record is committed on, which must be one the checkout is on now (listed below), and `sources`, globs of the documents that hold the architecture; list suitable existing documents instead of copying them.',
+  '2. Propose the manifest: `mainBranch`, the branch or jj bookmark whose committed sections Rulings may cite, usually the one the project integrates into (the local ones are listed below), and `sources`, globs of the documents that hold the architecture; list suitable existing documents instead of copying them.',
   '3. Propose a small first document for what no existing document states: module boundaries, dependency direction, extension points, and data ownership. Grow it later from the unresolved points of consultations.',
-  '4. After the user agrees, write the manifest first with `architecture_edit`, then each new document, and ask the user to review and commit them. Only committed sections can be cited in Rulings.',
+  '4. After the user agrees, write the manifest first with `architecture_edit`, then each new document, and ask the user to review them and commit them to `mainBranch`. Only sections committed there, or accepted by the user, can be cited in Rulings.',
 ].join('\n')
 
 function sessionCwd(exec: ToolRunContext): string {
@@ -58,7 +58,7 @@ const SECTION_ROW = {
  */
 export function renderIndex(value: {
   hasManifest: boolean
-  checkout?: { vcs: string; isPrimary: boolean; branches: readonly string[] } | undefined
+  checkout?: { vcs: string; isPrimary: boolean; current: readonly string[]; all: readonly string[] } | undefined
   sources: readonly string[]
   sections: ReadonlyArray<{ cite: string; title: string; level: number; line: number; hash: string }>
   diagnostics: readonly string[]
@@ -70,10 +70,15 @@ export function renderIndex(value: {
     const where = checkout.isPrimary
       ? `This is the primary ${kind}`
       : `This is not the primary ${kind}, so nothing can be written from here`
-    const on = checkout.branches.length === 0
-      ? `it is on no ${checkout.vcs === 'jj' ? 'bookmark (none points to @ or @-)' : 'branch (detached HEAD)'}; ask the user which to use`
-      : `it is on ${checkout.branches.map(name => `\`${name}\``).join(', ')}`
-    return `${COLD_START_GUIDANCE}\n\n${where}; ${on}.`
+    const names = (list: readonly string[]): string => list.map(name => `\`${name}\``).join(', ')
+    const [noun, nouns] = checkout.vcs === 'jj' ? ['bookmark', 'bookmarks'] : ['branch', 'branches']
+    const on = checkout.current.length === 0
+      ? `it is on no ${checkout.vcs === 'jj' ? 'bookmark (none points to @ or @-)' : 'branch (detached HEAD)'}`
+      : `it is on ${names(checkout.current)}`
+    const local = checkout.all.length === 0
+      ? `The repository has no local ${noun} yet; ask the user which name to use.`
+      : `Local ${nouns}: ${names(checkout.all)}.`
+    return `${COLD_START_GUIDANCE}\n\n${where}; ${on}. ${local}`
   }
   return [
     `${value.sources.length} source(s), ${value.sections.length} section(s).`,
@@ -114,7 +119,8 @@ export function apply(ctx: Context): void {
             properties: {
               vcs: { type: 'string', required: true },
               isPrimary: { type: 'boolean', required: true },
-              branches: { type: 'array', required: true, items: { type: 'string' } },
+              current: { type: 'array', required: true, items: { type: 'string' } },
+              all: { type: 'array', required: true, items: { type: 'string' } },
             },
           },
           sources: { type: 'array', required: true, items: { type: 'string' } },
@@ -128,9 +134,14 @@ export function apply(ctx: Context): void {
       const cwd = sessionCwd(exec)
       const index = await ctx.architecture.rebuild(cwd, exec.signal)
       if (index === undefined) {
-        const checkout = await ctx.architecture.currentBranches(cwd, exec.signal)
-        const branches = [...checkout.branches]
-        return { hasManifest: false, checkout: { ...checkout, branches }, sources: [], sections: [], diagnostics: [] }
+        const checkout = await ctx.architecture.branches(cwd, exec.signal)
+        return {
+          hasManifest: false,
+          checkout: { vcs: checkout.vcs, isPrimary: checkout.isPrimary, current: [...checkout.current], all: [...checkout.all] },
+          sources: [],
+          sections: [],
+          diagnostics: [],
+        }
       }
       const sections = index.sections.filter(section => args.path === undefined || section.path === args.path)
       return {
@@ -171,7 +182,7 @@ export function apply(ctx: Context): void {
 
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'architecture_edit',
-    description: 'Write an architecture source, the manifest, or a file under the local architecture directory, only after the user agreed to the change. With anchor, replace that section from its heading through its last line; include the heading in content, and pass the hash from architecture_read so a concurrent change is refused. Without anchor, content replaces or creates the whole file. Writes only in the primary worktree on the main branch.',
+    description: 'Write an architecture source, the manifest, or a file under the local architecture directory, only after the user agreed to the change. With anchor, replace that section from its heading through its last line; include the heading in content, and pass the hash from architecture_read so a concurrent change is refused. Without anchor, content replaces or creates the whole file. Writes only in the primary worktree or jj workspace, on any branch.',
     parameters: {
       path: { type: 'string', required: true, description: 'Target path relative to the repository root.' },
       content: { type: 'string', required: true, description: 'New content of the section, including its heading, or of the whole file.' },

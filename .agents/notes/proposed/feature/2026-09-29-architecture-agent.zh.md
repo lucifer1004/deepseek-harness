@@ -19,7 +19,7 @@ Status: proposed
 | 入口 | 使用者 | 对架构来源的权限 |
 |---|---|---|
 | 仪表盘 | 用户，无需对话 | 实时读取；接受本地条目；裁决上诉 |
-| 架构会话 | 用户与 architect preset | 在主分支上读取、讨论和编辑 |
+| 架构会话 | 用户与 architect preset | 在主 checkout 中读取、讨论和编辑 |
 | 咨询 | worker agent | 通过约束性 Ruling 读取；向用户上诉 |
 
 这个角色借鉴了 sleep-time agent 和"dream"agent 的三个思路：在 worker 需要之前准备好上下文；worker 和架构师使用不同的上下文；后台分析只产出供用户审查的提案。后台分析本身从不改写架构来源。
@@ -34,14 +34,14 @@ Status: proposed
 
 ### 编辑规则
 
-只有 `architecture_edit` 能写入架构来源，而且只能在主 worktree 的主分支上写入。该工具解析会话所在的检出，除非该检出是仓库的主 worktree 且 `HEAD` 为配置的 `mainBranch`，否则拒绝写入。`mainBranch` 是必填配置字段，没有默认值。其他任何工具和会话都不能修改 manifest 来源，包括运行在主 worktree 的 `mainBranch` 上的 worker；不认同某个来源的 worker 应当上诉。
+只有 `architecture_edit` 能写入架构来源，而且只能在主 checkout 中写入：即仓库的 git 主 worktree，或持有仓库的 jj workspace。该工具解析会话所在的检出，拒绝来自其他检出的写入；检出可以处于任意分支。`mainBranch` 指明裁定可以引用哪个分支上已提交的内容，而不是编辑发生的位置，因此其他分支上的编辑在合并到 `mainBranch` 或被用户接受之前不约束任何人。其他任何工具和会话都不能修改 manifest 来源，包括运行在主 checkout 中的 worker；不认同某个来源的 worker 应当上诉。
 
 即使咨询的 worker 运行在内容更旧的链接 worktree 中，Ruling 也始终引用主 worktree 的内容。
 
 没有任何一层能覆盖所有写入路径，因此该规则在三层上执行：
 
 1. **工具 guard。** 插件注册一个全局 `ctx.tools.guard()`：`write`、`edit` 和 `str_replace_editor` 调用的路径参数按会话 cwd 解析并规范化后，如果指向 manifest 来源或 `.architecture/` 下的路径，就拒绝该调用。guard 在所有 `tools/pre-execute` listener 之后运行，且只能拒绝，因此 listener 顺序无法重新放行该调用；PTC 子调用也经过同一个 guard。拒绝理由会引导模型改用 `consult_architect` 或 `appeal_ruling`。`architecture_edit` 不是通用写工具，它自行执行检查。
-2. **Git 检查。** Bash、终端、PTC 代码及其子进程通过内核沙箱写入，而内核沙箱授权的是整个工作区根目录，并非每种运行器都能把其中的子路径设为只读。因此插件提供的是检查脚本，而不是安装 hook：脚本拒绝在主 worktree 之外或不在 `mainBranch` 上触及 manifest 来源的提交，并拒绝相对 `mainBranch` 的 diff 触及 manifest 来源的分支。由用户把脚本接入仓库的 pre-commit hook 和合并路径（例如 CI 或 fork 的本地合并流程）。合并路径上的检查是最终的执行点，因为 `git commit --no-verify` 会跳过 pre-commit hook。
+2. **Git 检查。** Bash、终端、PTC 代码及其子进程通过内核沙箱写入，而内核沙箱授权的是整个工作区根目录，并非每种运行器都能把其中的子路径设为只读。因此插件提供的是检查脚本，而不是安装 hook：脚本拒绝在主 checkout 之外触及 manifest 来源的提交，并在合并路径上列出分支相对 `mainBranch` 修改的 manifest 来源，但不会失败。由用户把脚本接入仓库的 pre-commit hook 和合并路径（例如 CI 或 fork 的本地合并流程）。合并审阅是最终的执行点，因为 `git commit --no-verify` 会跳过 pre-commit hook：从链接 worktree 用 `--no-verify` 提交的来源改动，要合并到 `mainBranch` 后才会生效，而合并路径上的列表会在此之前把它展示给审阅者。
 3. **仪表盘检测。** 只要任何 worktree 中某个 manifest 来源的工作副本与 `mainBranch` 不同，仪表盘就会报告，因此绕过前两层的编辑在提交之前就是可见的。
 
 不使用 `fs/write-intent` 和 `fs/edit-intent` 事件：它们各自是单一的决策槽，按注册顺序由 [fs-observation-policy](../../../../packages/fs/fs-observation-policy/README.zh.md) 占用，而且该包指明分层的权限控制应放在 `tools/*` 流水线上。像 [fs-sandbox](../../../../packages/fs/fs-sandbox/README.zh.md) 那样在重新规范化目标后拦截写入的装饰型 `ctx.fs` 提供方，检查的是确切的目标而不是解析出的参数，但它要替换组合中的 `ctx.fs` 行；除非 guard 的参数解析被证明不够用，否则推迟实现。
@@ -79,7 +79,7 @@ worker 调用 `consult_architect(question, scope?)`，其中 `scope` 指定路�
 worker 认为某条 Ruling 有误时调用 `appeal_ruling(rulingId, reason, evidence)`。上诉期间 Ruling 仍然有效：worker 可以继续不受影响的工作或停下来，但不得绕过约束。用户在仪表盘中裁决：
 
 - **维持：** 通知 worker 继续遵守该 Ruling。
-- **推翻：** 用户在主分支上的架构会话中修订来源，产生新的索引 revision，worker 收到修订后的约束。
+- **推翻：** 用户在架构会话中修订来源并提交到主分支，产生新的索引 revision，worker 收到修订后的约束。
 - **给予例外：** 用户在 `.architecture/` 下记录一个限定范围的例外或偏离，worker 收到该记录。
 
 裁决通过 `agent.steer()` 送达 worker，因此作为普通输入进入该会话的日志。worker 会话未加载时，裁决保留在其上诉记录中待送达，并在该会话的 agent 下一次创建时送达。之后若被引用段落的 hash 发生变化，仪表盘会把引用它的 Ruling 标为过期。
@@ -125,9 +125,9 @@ Ruling 作为 `consult_architect` 的工具结果到达 worker 模型，并作�
 
 **建议性的咨询。** 建议会让处在局部压力下的 worker 恰好在关键时刻忽略设计。约束性 Ruling 加上向用户上诉，既保持约束的刚性，又给 worker 一条报告判断错误的路径。要求引用，能防止无依据的架构师判断变成约束。
 
-**允许从任何 worktree 或分支编辑架构。** 这能让分支工作更新自己的设计，但并行的 worktree 会在架构本身上产生分歧，Ruling 也失去唯一的权威文本。编辑规则为 Ruling 提供唯一来源；分支工作通过上诉或架构会话影响设计。
+**允许从任何 worktree 或分支编辑架构。** 这能让分支工作更新自己的设计，但并行的 worktree 会在架构本身上产生分歧，Ruling 也失去唯一的权威文本。主 checkout 规则与引用规则为 Ruling 提供唯一来源：只有主 checkout 索引和编辑设计，而约束只绑定已提交到 `mainBranch` 或被用户接受的内容，因此分支上的编辑在合并前不约束任何人。其他 worktree 中的工作通过上诉或架构会话影响设计。
 
-**只按位置限制、允许主 worktree 的 `mainBranch` 上任何写入者修改的规则。** 这样表述更简单，但运行在那里的 worker 可以用通用工具改写来源，从而改变约束自己的规则，绕过上诉路径。编辑规则既限制位置，也限制写入者。
+**只按位置限制、允许主 checkout 中任何写入者修改的规则。** 这样表述更简单，但运行在那里的 worker 可以用通用工具改写来源，从而改变约束自己的规则，绕过上诉路径。编辑规则既限制位置，也限制写入者。
 
 **在内核沙箱中设置只读子路径。** 给 `SandboxExecutionPolicy` 增加只读子路径列表可以直接阻止 Bash 写入。但这会改变公共的沙箱策略和每一种运行器：bwrap 的只读绑定只覆盖命令启动时已存在的路径，Landlock 的授权只能叠加、无法把子目录从已授权的根目录中排除，而 `danger-full-access` 会完全跳过限制。提交和合并检查在权威记录发生变化的地方执行该规则，不需要这项改动。
 
@@ -147,9 +147,9 @@ Ruling 作为 `consult_architect` 的工具结果到达 worker 模型，并作�
 
 - 挂载 profile patch 会添加仪表盘入口、`architect` preset 和 worker 工具；发布版 profile 和包保持不变。
 - 没有 manifest 的工作区可以通过架构会话建立 manifest，每次来源写入都在用户确认后经过 `architecture_edit`。
-- `architecture_edit` 拒绝 manifest 和 `.architecture/` 之外的目标，并拒绝来自链接 worktree 或 `mainBranch` 以外分支的每次写入；测试通过工具执行器覆盖这两种拒绝。
+- `architecture_edit` 拒绝 manifest 和 `.architecture/` 之外的目标，并拒绝来自链接 worktree 或次级 jj workspace 的每次写入；测试通过工具执行器覆盖这两种拒绝。
 - 工具 guard 在每个会话中（包括主 worktree 的 `mainBranch` 上）拒绝对 manifest 来源或 `.architecture/` 路径的 `write`、`edit` 和 `str_replace_editor` 调用，覆盖直接调用和 PTC 调用，也覆盖该路径的相对写法、符号链接写法和 `..` 写法。
-- 检查脚本拒绝在主 worktree 之外或 `mainBranch` 之外触及 manifest 来源的提交或分支 diff，并接受在主 worktree 的 `mainBranch` 上提交的 `architecture_edit` 结果。
+- 检查脚本拒绝在主 checkout 之外触及 manifest 来源的提交，接受在主 checkout 中任意分支上提交的 `architecture_edit` 结果，并列出分支 diff 修改的 manifest 来源但不失败。
 - 架构会话和咨询 agent 只能看到并执行架构师工具；通过普通新建会话路径选择 `architect` preset 的会话，在任何沙箱模式下都被 guard 拒绝所有可变更工具。
 - `consult_architect` 返回的 Ruling 中每条约束都引用了一个 hash 匹配的可引用段落；引用无效、过期或缺失的约束会被移除，或作为未决点返回。
 - 上诉出现在仪表盘中，每次裁决都作为已记录的输入送达 worker 所在的会话。

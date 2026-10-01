@@ -7,7 +7,7 @@
 
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type { CheckoutState } from './types.ts'
-import { CommandRunner, nulEntries, type ChangedStatus, type VcsFiles, type VcsLimits } from './vcs.ts'
+import { CommandRunner, nulEntries, type BranchList, type ChangedStatus, type VcsFiles, type VcsLimits } from './vcs.ts'
 
 /** Git implementation of {@link VcsFiles}. */
 export class GitFiles implements VcsFiles {
@@ -60,7 +60,7 @@ export class GitFiles implements VcsFiles {
   /**
    * Report the state of paths relative to the index and `HEAD`, including ignored and untracked files.
    * @param root - checkout root.
-   * @param _branch - unused: the edit rule keeps a git checkout that changes sources on the main branch.
+   * @param _branch - unused: git reports changes against `HEAD`, the commit the checkout will extend.
    * @param paths - repository-relative POSIX paths.
    * @param signal - cancels the command.
    * @returns the state of every reported path.
@@ -86,21 +86,17 @@ export class GitFiles implements VcsFiles {
   }
 
   /**
-   * Whether the checkout's `HEAD` names the branch.
-   * @param checkout - the checkout, read from `.git` metadata.
-   * @param branch - branch name.
-   * @returns true when `HEAD` is `refs/heads/<branch>`.
+   * List `refs/heads`, and the branch `HEAD` names as the current one.
+   * @param checkout - the checkout; `HEAD` is read from its `.git` metadata.
+   * @param signal - cancels the listing.
+   * @returns every local branch, and `HEAD`'s branch unless `HEAD` is detached.
+   * @throws when git fails, times out, is aborted, prints more than the output cap, or ends mid-entry.
    */
-  onBranch(checkout: CheckoutState, branch: string): Promise<boolean> {
-    return Promise.resolve(checkout.branch === branch)
-  }
-
-  /**
-   * The branch `HEAD` names.
-   * @param checkout - the checkout, read from `.git` metadata.
-   * @returns that branch, or nothing on a detached `HEAD`.
-   */
-  currentBranches(checkout: CheckoutState): Promise<readonly string[]> {
-    return Promise.resolve(checkout.branch === undefined ? [] : [checkout.branch])
+  async branches(checkout: CheckoutState, signal: AbortSignal | undefined): Promise<BranchList> {
+    const result = await this.git.run(['for-each-ref', '--format=%(refname:lstrip=2)%00', 'refs/heads/'], checkout.root, signal)
+    if (result.code !== 0) throw new Error(`git for-each-ref failed in ${checkout.root}: ${result.stderr.trim()}`)
+    // for-each-ref ends each record with a newline after the format's NUL.
+    const all = [...new Set(nulEntries(result.stdout.replaceAll('\0\n', '\0'), 'git for-each-ref', checkout.root))].sort()
+    return { all, current: checkout.branch === undefined ? [] : [checkout.branch] }
   }
 }

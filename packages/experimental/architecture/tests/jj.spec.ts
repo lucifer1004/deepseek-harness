@@ -91,16 +91,15 @@ describe.skipIf(!hasJj())('ArchitectureService in a jj repository', { timeout: 3
     const storage = index?.sections.find(section => section.anchor === 'storage')
     if (draft === undefined || storage === undefined) throw new Error('sections missing')
 
-    // `@` is a child of `main`, so the primary workspace may change the record.
-    expect(await ctx.architecture.checkEdit(repo, 'docs/arch.md')).toBeUndefined()
+    // The primary workspace may change the record, wherever its working copy is.
+    expect(ctx.architecture.checkEdit(repo, 'docs/arch.md')).toBeUndefined()
     expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/third.md', content: '# Third\n' })).toEqual({ kind: 'written', path: 'docs/third.md' })
     expect(ctx.architecture.isProtected(join(repo, 'docs', 'fourth.md'))).toBe(true)
-    // A working copy two commits past `main` is off the branch.
     jj(repo, 'new')
-    const refusal = await ctx.architecture.checkEdit(repo, 'docs/arch.md')
-    expect(refusal).toMatchObject({ kind: 'wrong-branch', vcs: 'jj', mainBranch: 'main' })
-    if (refusal !== undefined) expect(describeRefusal(refusal)).toBe('architecture sources change only on bookmark main; the working-copy commit is neither main nor its child')
+    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/fourth.md', content: '# Fourth\n' })).toEqual({ kind: 'written', path: 'docs/fourth.md' })
     expect(await readFile(join(repo, 'docs', 'third.md'), 'utf8')).toBe('# Third\n')
+    // Two commits past `main`, it is on no bookmark, yet every bookmark is listed.
+    expect(await ctx.architecture.branches(repo)).toEqual({ vcs: 'jj', isPrimary: true, current: [], all: ['main'] })
 
     // Accepting the draft lets a Ruling cite it; the storage section is committed on `main`.
     await ctx.architecture.accept(repo, draft.path, draft.anchor, draft.hash)
@@ -115,7 +114,7 @@ describe.skipIf(!hasJj())('ArchitectureService in a jj repository', { timeout: 3
     expect(await files.committed(repo, 'main', 'docs/new.md', undefined)).toBeUndefined()
     expect(await files.committed(repo, 'nope', 'docs/arch.md', undefined)).toBeUndefined()
     expect(await files.status(repo, 'main', [], undefined)).toEqual(new Map())
-    expect(await ctx.architecture.currentBranches(repo)).toEqual({ vcs: 'jj', isPrimary: true, branches: ['main'] })
+    expect(await ctx.architecture.branches(repo)).toEqual({ vcs: 'jj', isPrimary: true, current: ['main'], all: ['main'] })
     expect(await files.status(repo, 'main', ['docs/ignored.md'], undefined)).toEqual(new Map([['docs/ignored.md', 'ignored']]))
     expect(await files.status(repo, undefined, ['docs/ignored.md', 'docs/new.md'], undefined))
       .toEqual(new Map([['docs/ignored.md', 'ignored'], ['docs/new.md', 'untracked']]))
@@ -141,11 +140,15 @@ describe.skipIf(!hasJj())('ArchitectureService in a jj repository', { timeout: 3
       .toEqual({ kind: 'refused', refusal: { kind: 'linked-worktree', root: secondRoot, primaryRoot: repo } })
   })
 
-  it('reads a missing bookmark or path as uncommitted', async () => {
+  it('declares any local bookmark, and refuses a name that is not one', async () => {
     const repo = await repository(false)
-    await writeFile(join(repo, 'architecture.yml'), 'mainBranch: trunk\nsources:\n  - docs/*.md\n')
+    jj(repo, 'bookmark', 'create', 'trunk', '-r', 'root()')
     const ctx = await boot()
+    expect(await ctx.architecture.snapshot(repo)).toMatchObject({ branches: { all: ['main', 'trunk'], current: ['main'] } })
+    expect(await ctx.architecture.setMainBranch(repo, 'trunk')).toEqual({ kind: 'written', path: 'architecture.yml' })
     expect(await ctx.architecture.snapshot(repo)).toMatchObject({ mainBranch: 'trunk' })
-    expect(await ctx.architecture.checkEdit(repo, 'docs/arch.md')).toMatchObject({ kind: 'wrong-branch', vcs: 'jj', mainBranch: 'trunk' })
+    const refused = await ctx.architecture.setMainBranch(repo, 'nope')
+    expect(refused).toEqual({ kind: 'refused', refusal: { kind: 'unknown-branch', vcs: 'jj', branch: 'nope' } })
+    if (refused.kind === 'refused') expect(describeRefusal(refused.refusal)).toBe('nope is not a local bookmark of this repository')
   })
 })

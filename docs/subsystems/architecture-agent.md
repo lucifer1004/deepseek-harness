@@ -8,7 +8,7 @@ The experimental architecture agent keeps worker agents inside the workspace's r
 
 The repository's `architecture.yml` lists Markdown sources as globs, with an optional `exclude` list. The service indexes each source's headings as sections. An `IndexedSection` carries its path, GitHub-style anchor, title, level, line range, and content hash. `ArchitectureIndex` holds every section of every source from the primary worktree, plus diagnostics for sources that could not be read. The index revision hashes every section's path, anchor, and hash, so it changes whenever indexed content changes.
 
-Architecture sources change only on the configured main branch in the primary worktree. In a Jujutsu repository, colocated or not, the main branch is a bookmark, the primary checkout is the workspace that holds the repository, and a working copy is on the branch when the bookmark points to it or its parent. A `CheckoutState` records the checkout's `VcsKind`, its root, and whether it is primary. A repository without a manifest may receive a first manifest that declares the branch it is on, and a manifest that declares no branch may be given one the checkout is on; a declared branch changes only from that branch. A global tool guard denies every other writer, including one that would create a file a source glob matches; the architect's `architecture_edit` tool checks the same rule, and an `ArchitectureEditRequest` may replace one section at the hash the architect read. `EditRefusal` names the violated condition.
+Architecture sources change only in the primary checkout: the primary git worktree, or, in a Jujutsu repository, colocated or not, the workspace that holds the repository. The checkout may be on any branch. A `CheckoutState` records the checkout's `VcsKind`, its root, and whether it is primary. The manifest's `mainBranch` names the branch, a bookmark in Jujutsu, whose committed content Rulings may cite; the service reads it from the primary checkout's manifest at each check, so a changed value applies at once. A global tool guard denies every other writer, including one that would create a file a source glob matches; the architect's `architecture_edit` tool checks the same rule, and an `ArchitectureEditRequest` may replace one section at the hash the architect read. `EditRefusal` names the violated condition.
 
 ## Consultation and Rulings
 
@@ -24,15 +24,15 @@ An `Acceptance` records one section at the exact content hash the user reviewed.
 
 ## Dashboard
 
-The dashboard is a main panel with a sidebar entry. It follows one Workspace through the `architecture` Remote `follow` stream, which yields an `ArchitectureSnapshot` after every `architecture/changed` event for that repository. Its views show the index with each source's git status, Rulings with their status and whether a cited section changed, appeals with the decision form, files under the local directory with their git status, and settings. The Settings view declares the repository's main branch through the `setMainBranch` Remote method, under the edit rule, and edits the profile's architect model, the live `architectProvider`, `architectModel`, and `architectReasoningEffort` fields of the service configuration that each consultation reads. Discuss opens a new Session on the `architect` preset in the selected Workspace.
+The dashboard is a main panel with a sidebar entry. It follows one Workspace through the `architecture` Remote `follow` stream, which yields an `ArchitectureSnapshot` after every `architecture/changed` event for that repository. Its views show the index with each source's git status, Rulings with their status and whether a cited section changed, appeals with the decision form, files under the local directory with their git status, and settings. The Settings view declares the repository's main branch through the `setMainBranch` Remote method, from the primary checkout, choosing among the repository's local branches or bookmarks, and edits the profile's architect model, the live `architectProvider`, `architectModel`, and `architectReasoningEffort` fields of the service configuration that each consultation reads. Discuss opens a new Session on the `architect` preset in the selected Workspace.
 
 ## Commit and CI check
 
-The service package ships `scripts/check-architecture.sh`, a POSIX shell script users wire into their own hooks. `staged` mode refuses a commit that changes the manifest or a source outside the main branch's primary worktree. `range` mode refuses a commit range that changes them, for CI on other branches.
+The service package ships `scripts/check-architecture.sh`, a POSIX shell script users wire into their own hooks. In git, `staged` mode refuses a commit that changes the manifest or a source outside the primary worktree; in jj, `working` mode refuses such working-copy changes outside the primary workspace. `range` mode lists the manifest and source paths a commit range changes and does not fail, so review of a merge into the main branch sees every architecture change.
 
 ## Design rationale
 
-The [architecture agent proposal](../../.agents/notes/proposed/feature/2026-09-29-architecture-agent.md) explains the file authority, binding constraints with appeals, and main-branch-only edits.
+The [architecture agent proposal](../../.agents/notes/proposed/feature/2026-09-29-architecture-agent.md) explains the file authority, binding constraints with appeals, and primary-checkout-only edits.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -50,13 +50,14 @@ Workspace architecture sources, index, and edit rule.
 
 ```ts cordis-catalog
 /**
- * The version control of the checkout containing a directory, and the branches it is on now.
+ * The version control of the checkout containing a directory and the repository's local branches.
  * @param cwd - absolute directory inside the checkout.
- * @param signal - cancels a jj query.
- * @returns the system, whether the checkout is the primary one, and its current branch or bookmark names.
+ * @param signal - cancels git and jj queries.
+ * @returns the system, whether the checkout is the primary one, the branch or bookmark names it is on now, and every
+ * local branch or bookmark.
  * @throws when `cwd` is not inside a usable git or jj checkout, or version control fails.
  */
-async currentBranches(cwd: string, signal?: AbortSignal): Promise<{ vcs: VcsKind; isPrimary: boolean; branches: readonly string[] }>
+async branches(cwd: string, signal?: AbortSignal): Promise<CheckoutBranches>
 
 /**
  * The checkout containing a directory, when the service can read its version control.
@@ -95,9 +96,9 @@ isProtected(path: string): boolean
 
 /**
  * Write one architecture file, or replace one of its indexed sections, under
- * the main-branch edit rule. The target must be the manifest, an indexed
- * source, or a path under the local directory, and the checkout must be the
- * primary worktree on `mainBranch`. A section edit reads the current file,
+ * the edit rule. The target must be the manifest, an indexed source, or a
+ * path under the local directory, and the checkout must be the primary
+ * worktree or jj workspace, on any branch. A section edit reads the current file,
  * refuses when the section is missing or its hash differs from
  * `expectedHash`, and replaces the section's lines. The write replaces the
  * file atomically and rebuilds the index.
@@ -185,26 +186,23 @@ async accept(cwd: string, path: string, anchor: string, hash: string): Promise<A
 async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>
 
 /**
- * Declare the repository's main branch in its manifest. The write follows the edit rule: a repository that declares
- * no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.
+ * Declare the repository's main branch in its manifest, from the primary checkout. The branch must be one of the
+ * repository's local branches or bookmarks.
  * @param cwd - any directory inside the repository.
  * @param branch - the branch or jj bookmark to declare.
- * @param signal - cancels jj queries.
+ * @param signal - cancels git and jj queries.
  * @returns the written manifest path, or the refusal.
  * @throws {ManifestError} when the repository has no valid manifest or `branch` is not a branch name.
  */
 async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult>
 
 /**
- * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
- * manifest: `content` written to the manifest path that declares the branch the checkout is on.
+ * Evaluate the edit rule without writing: architecture files change only in the primary checkout, on any branch.
  * @param cwd - Session directory.
  * @param path - target, relative to the repository root or absolute.
- * @param content - the content {@link edit} would write; only a first manifest reads it.
- * @param signal - cancels a jj branch query.
  * @returns the refusal, or undefined when {@link edit} would write.
  */
-async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined>
+checkEdit(cwd: string, path: string): EditRefusal | undefined
 ```
 
 Types: [Agent](core.md) · [SessionId](core.md)

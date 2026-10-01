@@ -150,15 +150,17 @@ describe('architect tools', () => {
     await rm(join(repo, 'architecture.yml'))
     const architect = await agent(ctx, repo, 'architect-session', 'architect')
     expect(await call(ctx, architect, 'architecture_index', {}))
-      .toEqual({ text: `${ArchitectTools.COLD_START_GUIDANCE}\n\nThis is the primary git checkout; it is on \`main\`.`, isError: false })
+      .toEqual({ text: `${ArchitectTools.COLD_START_GUIDANCE}\n\nThis is the primary git checkout; it is on \`main\`. Local branches: \`main\`.`, isError: false })
     const empty = { hasManifest: false, sources: [], sections: [], diagnostics: [] }
     expect(ArchitectTools.renderIndex(empty)).toBe(ArchitectTools.COLD_START_GUIDANCE)
-    const cold = (checkout: { vcs: string; isPrimary: boolean; branches: string[] }): string =>
+    const cold = (checkout: { vcs: string; isPrimary: boolean; current: string[]; all: string[] }): string =>
       ArchitectTools.renderIndex({ ...empty, checkout }).slice(ArchitectTools.COLD_START_GUIDANCE.length + 2)
-    expect(cold({ vcs: 'jj', isPrimary: true, branches: ['main', 'wip'] })).toBe('This is the primary jj workspace; it is on `main`, `wip`.')
-    expect(cold({ vcs: 'jj', isPrimary: false, branches: [] })).toBe('This is not the primary jj workspace, so nothing can be written from here; '
-      + 'it is on no bookmark (none points to @ or @-); ask the user which to use.')
-    expect(cold({ vcs: 'git', isPrimary: true, branches: [] })).toBe('This is the primary git checkout; it is on no branch (detached HEAD); ask the user which to use.')
+    expect(cold({ vcs: 'jj', isPrimary: true, current: ['main', 'wip'], all: ['main', 'wip'] }))
+      .toBe('This is the primary jj workspace; it is on `main`, `wip`. Local bookmarks: `main`, `wip`.')
+    expect(cold({ vcs: 'jj', isPrimary: false, current: [], all: ['main'] })).toBe('This is not the primary jj workspace, so nothing can be written from here; '
+      + 'it is on no bookmark (none points to @ or @-). Local bookmarks: `main`.')
+    expect(cold({ vcs: 'git', isPrimary: true, current: [], all: [] }))
+      .toBe('This is the primary git checkout; it is on no branch (detached HEAD). The repository has no local branch yet; ask the user which name to use.')
   })
 
   it('keeps generic write tools unavailable to an architect-preset Session', async () => {

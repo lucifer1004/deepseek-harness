@@ -119,14 +119,12 @@ describe('architecture Remote namespace', () => {
   it('declares the main branch in the manifest and reports a refusal', async () => {
     const { api, repo } = await boot()
     const signal = new AbortController().signal
-    expect((await api.snapshot(WORKSPACE, signal)).currentBranches).toEqual(['main'])
+    expect((await api.snapshot(WORKSPACE, signal)).branches).toEqual({ all: ['main'], current: ['main'] })
     expect(await api.setMainBranch({ workspaceId: WORKSPACE, branch: 'main' }, signal)).toEqual({ path: 'architecture.yml' })
     expect(await readFile(join(repo, 'architecture.yml'), 'utf8')).toBe('mainBranch: "main"\nsources:\n  - design/*.md\n')
-    // From main, the branch may move on; afterwards the checkout is no longer on the declared branch.
-    await api.setMainBranch({ workspaceId: WORKSPACE, branch: 'trunk' }, signal)
-    const refused = await remoteError(api.setMainBranch({ workspaceId: WORKSPACE, branch: 'main' }, signal))
+    const refused = await remoteError(api.setMainBranch({ workspaceId: WORKSPACE, branch: 'trunk' }, signal))
     expect(refused.code).toBe('architecture/failed')
-    expect(refused.message).toBe('architecture sources change only on branch trunk; the checkout is on main')
+    expect(refused.message).toBe('trunk is not a local branch of this repository')
     expect((await remoteError(api.setMainBranch({ workspaceId: WORKSPACE, branch: 'a b' }, signal))).message).toMatch(/is not a branch name/)
     const controller = new AbortController()
     controller.abort(new Error('client left'))

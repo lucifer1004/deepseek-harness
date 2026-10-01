@@ -1,5 +1,5 @@
 ---
-description: "Keep a repository's architecture documents authoritative: index their sections with stable anchors and content hashes, and allow edits only in the primary worktree on the configured main branch."
+description: "Keep a repository's architecture documents authoritative: index their sections with stable anchors and content hashes, and allow edits only in the primary checkout."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Keep a repository's architecture documents authoritative while agents work on its code. You list the source documents in an `architecture.yml` manifest; the package indexes every Markdown section with a GitHub anchor and a content hash, so a ruling can cite `path#anchor` at an exact version. Built-in file tools cannot write those documents, and the package's own edit path writes them only in the primary checkout on your main branch. The repository may be git, or Jujutsu colocated or not. `consult()` returns a Ruling whose binding constraints cite committed or user-accepted sections; Rulings, appeals, and acceptances are recorded under `.architecture/`.
+Keep a repository's architecture documents authoritative while agents work on its code. You list the source documents in an `architecture.yml` manifest; the package indexes every Markdown section with a GitHub anchor and a content hash, so a ruling can cite `path#anchor` at an exact version. Built-in file tools cannot write those documents, and the package's own edit path writes them only in the primary checkout. The repository may be git, or Jujutsu colocated or not. `consult()` returns a Ruling whose binding constraints cite committed or user-accepted sections; Rulings, appeals, and acceptances are recorded under `.architecture/`.
 
 ## Table of Contents
 
@@ -52,7 +52,7 @@ exclude:
   - '**/*.zh.md'
 ```
 
-Each repository's main branch is the manifest's `mainBranch`, or the service's `mainBranch` when the manifest names none; only that branch's primary-worktree checkout changes architecture sources, and Rulings bind only sections committed on it. In a jj repository the main branch is a local bookmark, the primary checkout is the workspace that holds `.jj/repo` as a directory, and a workspace is on the branch when the bookmark points to its working-copy commit or that commit's parent. A repository without a manifest may receive its first one through `edit()` when the manifest declares the branch the checkout is on; this is how an Architecture Session establishes the record. `setMainBranch()` declares a branch in an existing manifest through the same rule: a manifest that declares none may name a branch the checkout is on, and a declared branch changes only from that branch. It replaces only the value of `mainBranch` with a quoted string, or adds the key before the first key when absent, and keeps every other byte of the file. The service reads the manifest's branch on every check, so a changed branch applies at once. A repository with neither refuses every architecture edit with `no-main-branch`, and its Rulings bind only sections the user accepted.
+Architecture sources change only in the primary checkout, on any branch: the primary git worktree, or in a jj repository the workspace that holds `.jj/repo` as a directory. Each repository's main branch is the manifest's `mainBranch`, or the service's `mainBranch` when the manifest names none, and Rulings bind only sections committed on it; in jj it is a local bookmark. A repository without a manifest may receive its first one through `edit()`; this is how an Architecture Session establishes the record. `setMainBranch()` declares any local branch or bookmark in an existing manifest from the primary checkout. It replaces only the value of `mainBranch` with a quoted string, or adds the key before the first key when absent, and keeps every other byte of the file. The service reads the manifest's branch on every check, so a changed branch applies at once. A repository with neither binds only sections the user accepted.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -73,11 +73,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### What success and failure look like
 
-`ctx.architecture.rebuild(cwd)` returns the index of the repository containing `cwd`, or `undefined` when it has no manifest; an invalid manifest throws `ManifestError`. A source that is too large, unreadable, or not UTF-8 appears in `diagnostics` instead of failing the rebuild. A `write`, `edit`, or `str_replace_editor` call that targets a protected path fails with an error result that names the path. `ctx.architecture.edit()` returns `{ kind: 'written' }` or a refusal whose `kind` is `not-repository`, `linked-worktree`, `no-main-branch`, `wrong-branch`, `not-protected`, `unknown-section`, or `stale-section`; `describeRefusal()` renders it as one sentence. `ctx.architecture.consult()` returns `{ kind: 'ruling' }`, `timeout`, or `no-submission`, and rejects when the worker cancels, the worker Session has no directory, or the repository has no manifest. `snapshot(cwd)` returns the dashboard state, or an empty one whose `unsupported` names `no-repository` or `vcs-missing` when `cwd` is outside git and jj or that system's executable is missing; `checkout(cwd)` returns the checkout only when the service can read it, and `currentBranches(cwd)` lists the branch or the bookmarks at `@` and `@-` it is on; `appeal()`, `adjudicate()`, and `accept()` reject with a message naming an unknown Ruling or appeal, an already decided appeal, or a section hash that changed.
+`ctx.architecture.rebuild(cwd)` returns the index of the repository containing `cwd`, or `undefined` when it has no manifest; an invalid manifest throws `ManifestError`. A source that is too large, unreadable, or not UTF-8 appears in `diagnostics` instead of failing the rebuild. A `write`, `edit`, or `str_replace_editor` call that targets a protected path fails with an error result that names the path. `ctx.architecture.edit()` returns `{ kind: 'written' }` or a refusal whose `kind` is `not-repository`, `linked-worktree`, `not-protected`, `unknown-section`, or `stale-section`, and `setMainBranch()` also refuses `unknown-branch`; `describeRefusal()` renders it as one sentence. `ctx.architecture.consult()` returns `{ kind: 'ruling' }`, `timeout`, or `no-submission`, and rejects when the worker cancels, the worker Session has no directory, or the repository has no manifest. `snapshot(cwd)` returns the dashboard state, or an empty one whose `unsupported` names `no-repository` or `vcs-missing` when `cwd` is outside git and jj or that system's executable is missing; `checkout(cwd)` returns the checkout only when the service can read it, and `branches(cwd)` lists every local branch or bookmark and the ones it is on: git's `HEAD` branch, or the bookmarks at `@` and `@-`; `appeal()`, `adjudicate()`, and `accept()` reject with a message naming an unknown Ruling or appeal, an already decided appeal, or a section hash that changed.
 
 ### Check commits and CI
 
-The package ships [`scripts/check-architecture.sh`](scripts/check-architecture.sh), a POSIX shell script that uses only git or jj. In git, run `check-architecture.sh staged` from a pre-commit hook to refuse a commit that changes the manifest or a source outside the primary worktree on the manifest's `mainBranch`. Run `check-architecture.sh range origin/main HEAD` in CI on other branches to refuse a range that changes them. `--main-branch <branch>` names the branch for a manifest that declares none; with neither, `staged` refuses every such change. `--manifest <path>` reads another manifest path. In a jj repository, colocated or not, run `check-architecture.sh working` before `jj git push` to refuse working-copy changes to the manifest or a source outside the primary workspace or away from the `mainBranch` bookmark and its child, and `check-architecture.sh range main @-` in CI, where both arguments are revsets. It exits 1 on a violation and 2 on a usage error or a manifest it cannot read; it reads only block lists under `sources:` and `exclude:` and a plain `mainBranch:` value.
+The package ships [`scripts/check-architecture.sh`](scripts/check-architecture.sh), a POSIX shell script that uses only git or jj. In git, run `check-architecture.sh staged` from a pre-commit hook to refuse a commit that changes the manifest or a source from a linked worktree. Run `check-architecture.sh range origin/main HEAD` in CI to list, on standard output, the manifest and source paths a branch changes, so a reviewer sees them before merging; it does not fail on them. `--manifest <path>` reads another manifest path. In a jj repository, colocated or not, run `check-architecture.sh working` before `jj git push` to refuse working-copy changes to the manifest or a source from a secondary workspace, and `check-architecture.sh range main @-` in CI, where both arguments are revsets. It exits 1 on a violation and 2 on a usage error or a manifest it cannot read; it reads only block lists under `sources:` and `exclude:` and a plain `mainBranch:` value.
 
 -----
 
@@ -104,13 +104,13 @@ Records are JSON files under the local directory: `rulings/<id>.json`, `appeals/
 | [src/repository.ts](src/repository.ts) | Synchronous git and jj checkout discovery |
 | [src/vcs.ts](src/vcs.ts) | Version-control query interface and the bounded command runner |
 | [src/git-files.ts](src/git-files.ts) | Git listing, committed reads, status, and branch check |
-| [src/jj-files.ts](src/jj-files.ts) | Jujutsu listing, committed reads, status, and bookmark check |
+| [src/jj-files.ts](src/jj-files.ts) | Jujutsu listing, committed reads, status, and bookmark listing |
 | [src/guard.ts](src/guard.ts) | Write-target resolution and protected-path matching |
 | [src/citations.ts](src/citations.ts) | Citation parsing and verification against `mainBranch` |
 | [src/ruling.ts](src/ruling.ts) | Submission validation into a Ruling |
 | [src/consultation.ts](src/consultation.ts) | Architect agent run and `submit_ruling` |
 | [src/records.ts](src/records.ts) | Ruling, appeal, and acceptance record files |
-| [scripts/check-architecture.sh](scripts/check-architecture.sh) | Commit and CI check for source changes outside the main branch |
+| [scripts/check-architecture.sh](scripts/check-architecture.sh) | Commit check for source changes outside the primary checkout, and CI listing of a range's source changes |
 
 </details>
 
@@ -136,7 +136,7 @@ These pages explain the design this package belongs to and the extension points 
 
 #### What the model sees
 
-When a `write`, `edit`, or `str_replace_editor` call targets a protected path, the tool registry returns an error result instead of running the tool. The text is `<path> is an architecture source. Architecture sources change only through the architecture agent on the main branch; do not edit them directly.`, where `<path>` is the absolute target. When an agent composed with `architectPreset` calls a tool outside `architectTools`, the text is `The <tool> tool is unavailable to the architect: it discusses and records architecture and does not change code. Use the architecture tools instead.`.
+When a `write`, `edit`, or `str_replace_editor` call targets a protected path, the tool registry returns an error result instead of running the tool. The text is `<path> is an architecture source. Architecture sources change only through the architecture agent; do not edit them directly.`, where `<path>` is the absolute target. When an agent composed with `architectPreset` calls a tool outside `architectTools`, the text is `The <tool> tool is unavailable to the architect: it discusses and records architecture and does not change code. Use the architecture tools instead.`.
 
 #### Token effect
 

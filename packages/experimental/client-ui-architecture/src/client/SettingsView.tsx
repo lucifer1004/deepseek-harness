@@ -1,6 +1,6 @@
 /**
  * The dashboard's Settings view, in two groups:
- * - **This repository** declares the main branch in the committed manifest, under the main-branch edit rule.
+ * - **This repository** declares the main branch in the committed manifest, from the primary checkout.
  * - **All repositories** edits the profile's architect model.
  *
  * The branch write is immediate and reports its outcome in place, because the manifest change is itself the result the
@@ -58,7 +58,8 @@ export function SettingsView(props: SettingsViewProps): ReactNode {
 
 function MainBranchField({ workspaceId, snapshot, setMainBranch, t }: SettingsViewProps): ReactNode {
   const id = useId()
-  const branches = snapshot.currentBranches ?? []
+  const all = snapshot.branches?.all ?? []
+  const current = snapshot.branches?.current ?? []
   const declared = snapshot.mainBranch
   const [choice, setChoice] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
@@ -66,12 +67,13 @@ function MainBranchField({ workspaceId, snapshot, setMainBranch, t }: SettingsVi
   // A new snapshot (another Workspace, a branch switch) restarts the choice from what the repository declares.
   useEffect(() => { setChoice(undefined) }, [workspaceId, declared])
   useEffect(() => { setOutcome(undefined) }, [workspaceId])
-  const options = [...new Set([...declared === undefined ? [] : [declared], ...branches])]
-  const selected = choice ?? declared ?? branches[0] ?? ''
+  // A declared branch that no longer exists stays listed so the select shows what the manifest says.
+  const options = [...new Set([...declared === undefined ? [] : [declared], ...all])]
+  const selected = choice ?? declared ?? ''
   const hint = snapshot.vcs === 'jj' ? t('settings.mainBranch.hint.jj') : t('settings.mainBranch.hint')
   const blocked = !snapshot.hasManifest
     ? t('settings.mainBranch.noManifest', { manifest: snapshot.manifestPath })
-    : options.length === 0 ? t('settings.mainBranch.noBranches') : undefined
+    : all.length === 0 ? (snapshot.vcs === 'jj' ? t('settings.mainBranch.noBookmarks') : t('settings.mainBranch.noBranches')) : undefined
   return (
     <div className={css.field}>
       <label className={css.label} htmlFor={id}>{t('settings.mainBranch')}</label>
@@ -86,10 +88,10 @@ function MainBranchField({ workspaceId, snapshot, setMainBranch, t }: SettingsVi
             setOutcome(undefined)
           }}
         >
-          {declared === undefined && <option value="" disabled>{t('settings.mainBranch.none')}</option>}
+          {declared === undefined && <option value="" disabled>{t('settings.mainBranch.choose')}</option>}
           {options.map(branch => (
             <option key={branch} value={branch}>
-              {branches.includes(branch) ? `${branch} · ${t('settings.mainBranch.current')}` : branch}
+              {current.includes(branch) ? `${branch} · ${t('settings.mainBranch.current')}` : branch}
             </option>
           ))}
         </select>
@@ -110,7 +112,6 @@ function MainBranchField({ workspaceId, snapshot, setMainBranch, t }: SettingsVi
         </Button>
       </div>
       <p className={css.hint}>{blocked ?? hint}</p>
-      {declared !== undefined && blocked === undefined && <p className={css.hint}>{t('settings.mainBranch.rule')}</p>}
       {outcome !== undefined && (
         <p className={outcome.kind === 'failed' ? css.failed : css.hint} role="status">
           {outcome.kind === 'written'

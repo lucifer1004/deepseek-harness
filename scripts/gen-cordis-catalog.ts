@@ -690,6 +690,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ArchitectureAcceptRequest: 'architecture-agent.md',
   ArchitectureAdjudicateRequest: 'architecture-agent.md',
   ArchitectureMainBranchRequest: 'architecture-agent.md',
+  CheckoutBranches: 'architecture-agent.md',
   ArchitectureSectionRequest: 'architecture-agent.md',
   ArchitectureSectionValue: 'architecture-agent.md',
   TranscriptionRequest: 'voice-input.md',

@@ -8,7 +8,7 @@
 
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type { CheckoutState } from './types.ts'
-import { CommandRunner, nulEntries, type ChangedStatus, type VcsFiles, type VcsLimits } from './vcs.ts'
+import { CommandRunner, nulEntries, type BranchList, type ChangedStatus, type VcsFiles, type VcsLimits } from './vcs.ts'
 
 /** Global options that keep output machine-readable whatever the user's jj configuration says. */
 const GLOBAL_OPTIONS = ['--no-pager', '--color=never']
@@ -124,28 +124,21 @@ export class JjFiles implements VcsFiles {
   }
 
   /**
-   * Whether the workspace's working-copy commit is the bookmark's commit or a child of it, so its changes land on the
-   * main branch when the bookmark moves forward.
+   * List the local bookmarks, and the ones pointing to the working-copy commit or its parent as current.
    * @param checkout - the workspace.
-   * @param branch - bookmark name.
-   * @param signal - cancels the query.
-   * @returns true when the bookmark points to `@` or `@-`.
-   * @throws when jj fails, times out, is aborted, or prints more than the output cap.
-   */
-  async onBranch(checkout: CheckoutState, branch: string, signal: AbortSignal | undefined): Promise<boolean> {
-    const output = await this.query(['log', '--ignore-working-copy', '--no-graph', '-r', `${bookmark(branch)} & (@ | @-)`, '-T', 'commit_id ++ "\\n"'], checkout.root, signal)
-    return output.trim().length > 0
-  }
-
-  /**
-   * The local bookmarks pointing to the working-copy commit or its parent.
-   * @param checkout - the workspace.
-   * @param signal - cancels the query.
-   * @returns bookmark names, sorted.
+   * @param signal - cancels the queries.
+   * @returns every local bookmark, and those at `@` or `@-`.
    * @throws when jj fails, times out, is aborted, prints more than the output cap, or ends mid-entry.
    */
-  async currentBranches(checkout: CheckoutState, signal: AbortSignal | undefined): Promise<readonly string[]> {
-    const output = await this.query(['log', '--ignore-working-copy', '--no-graph', '-r', '@ | @-', '-T', 'local_bookmarks.map(|b| b.name() ++ "\\0").join("")'], checkout.root, signal)
-    return [...new Set(nulEntries(output, 'jj log', checkout.root))].sort()
+  async branches(checkout: CheckoutState, signal: AbortSignal | undefined): Promise<BranchList> {
+    const names = 'local_bookmarks.map(|b| b.name() ++ "\\0").join("")'
+    const [every, near] = await Promise.all([
+      this.query(['log', '--ignore-working-copy', '--no-graph', '-r', 'bookmarks()', '-T', names], checkout.root, signal),
+      this.query(['log', '--ignore-working-copy', '--no-graph', '-r', '@ | @-', '-T', names], checkout.root, signal),
+    ])
+    return {
+      all: [...new Set(nulEntries(every, 'jj log', checkout.root))].sort(),
+      current: [...new Set(nulEntries(near, 'jj log', checkout.root))].sort(),
+    }
   }
 }

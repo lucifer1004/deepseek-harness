@@ -8,7 +8,7 @@
 
 仓库的 `architecture.yml` 以 glob 列出 Markdown 来源，并可附带 `exclude` 列表。服务将每个来源的标题索引为章节。`IndexedSection` 携带路径、GitHub 风格锚点、标题、层级、行范围和内容哈希。`ArchitectureIndex` 包含主工作树中每个来源的全部章节，以及无法读取的来源的诊断信息。索引修订对每个章节的路径、锚点和哈希求哈希，因此索引内容一旦变化，修订就会变化。
 
-架构来源只能在主工作树中配置的主分支上修改。在 Jujutsu 仓库中（共置与否均可），主分支是一个书签，主 checkout 是持有仓库的 workspace，书签指向工作副本或其父提交时即视为在该分支上。`CheckoutState` 记录 checkout 的 `VcsKind`、根目录以及它是否为主 checkout。没有 manifest 的仓库可以写入第一份 manifest，只要它声明当前所在的分支；未声明分支的 manifest 可以声明 checkout 当前所在的分支；已声明的分支只能在该分支上更改。全局工具守卫拒绝其他所有写入者，包括会创建匹配来源 glob 之文件的写入者；架构师的 `architecture_edit` 工具检查同一规则，`ArchitectureEditRequest` 可以按架构师读取时的哈希替换一个章节。`EditRefusal` 指明被违反的条件。
+架构来源只能在主 checkout 中修改：即 git 的主工作树，或 Jujutsu 仓库（共置与否均可）中持有仓库的 workspace。checkout 可以处于任意分支。`CheckoutState` 记录 checkout 的 `VcsKind`、根目录以及它是否为主 checkout。manifest 的 `mainBranch` 指明裁定可以引用哪个分支（Jujutsu 中为书签）上已提交的内容；服务每次检查都从主 checkout 的 manifest 读取它，因此修改后立即生效。全局工具守卫拒绝其他所有写入者，包括会创建匹配来源 glob 之文件的写入者；架构师的 `architecture_edit` 工具检查同一规则，`ArchitectureEditRequest` 可以按架构师读取时的哈希替换一个章节。`EditRefusal` 指明被违反的条件。
 
 ## 咨询与裁定
 
@@ -24,15 +24,15 @@
 
 ## 仪表盘
 
-仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态及引用章节是否变化的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法按编辑规则声明仓库的主分支，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
+仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态及引用章节是否变化的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法在主 checkout 中声明仓库的主分支，可从仓库的本地分支或书签中选择，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
 
 ## 提交与 CI 检查
 
-服务包附带 `scripts/check-architecture.sh`，这是一个由用户自行接入 hook 的 POSIX shell 脚本。`staged` 模式拒绝在主分支主工作树之外修改 manifest 或来源的提交。`range` 模式拒绝修改它们的提交范围，用于其他分支上的 CI。
+服务包附带 `scripts/check-architecture.sh`，这是一个由用户自行接入 hook 的 POSIX shell 脚本。在 git 中，`staged` 模式拒绝在主工作树之外修改 manifest 或来源的提交；在 jj 中，`working` 模式拒绝在主 workspace 之外对它们的工作副本修改。`range` 模式列出一个提交范围修改的 manifest 与来源路径，但不会失败，使合并到主分支前的审阅能看到每一处架构改动。
 
 ## 设计依据
 
-[架构 Agent 提案](../../.agents/notes/proposed/feature/2026-09-29-architecture-agent.zh.md)解释了文件权威、带申诉的约束，以及仅限主分支的编辑。
+[架构 Agent 提案](../../.agents/notes/proposed/feature/2026-09-29-architecture-agent.zh.md)解释了文件权威、带申诉的约束，以及仅限主 checkout 的编辑。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -50,13 +50,14 @@ Workspace architecture sources, index, and edit rule.
 
 ```ts cordis-catalog
 /**
- * The version control of the checkout containing a directory, and the branches it is on now.
+ * The version control of the checkout containing a directory and the repository's local branches.
  * @param cwd - absolute directory inside the checkout.
- * @param signal - cancels a jj query.
- * @returns the system, whether the checkout is the primary one, and its current branch or bookmark names.
+ * @param signal - cancels git and jj queries.
+ * @returns the system, whether the checkout is the primary one, the branch or bookmark names it is on now, and every
+ * local branch or bookmark.
  * @throws when `cwd` is not inside a usable git or jj checkout, or version control fails.
  */
-async currentBranches(cwd: string, signal?: AbortSignal): Promise<{ vcs: VcsKind; isPrimary: boolean; branches: readonly string[] }>
+async branches(cwd: string, signal?: AbortSignal): Promise<CheckoutBranches>
 
 /**
  * The checkout containing a directory, when the service can read its version control.
@@ -95,9 +96,9 @@ isProtected(path: string): boolean
 
 /**
  * Write one architecture file, or replace one of its indexed sections, under
- * the main-branch edit rule. The target must be the manifest, an indexed
- * source, or a path under the local directory, and the checkout must be the
- * primary worktree on `mainBranch`. A section edit reads the current file,
+ * the edit rule. The target must be the manifest, an indexed source, or a
+ * path under the local directory, and the checkout must be the primary
+ * worktree or jj workspace, on any branch. A section edit reads the current file,
  * refuses when the section is missing or its hash differs from
  * `expectedHash`, and replaces the section's lines. The write replaces the
  * file atomically and rebuilds the index.
@@ -185,26 +186,23 @@ async accept(cwd: string, path: string, anchor: string, hash: string): Promise<A
 async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>
 
 /**
- * Declare the repository's main branch in its manifest. The write follows the edit rule: a repository that declares
- * no branch may declare the one its primary checkout is on, and a declared branch changes only from that branch.
+ * Declare the repository's main branch in its manifest, from the primary checkout. The branch must be one of the
+ * repository's local branches or bookmarks.
  * @param cwd - any directory inside the repository.
  * @param branch - the branch or jj bookmark to declare.
- * @param signal - cancels jj queries.
+ * @param signal - cancels git and jj queries.
  * @returns the written manifest path, or the refusal.
  * @throws {ManifestError} when the repository has no valid manifest or `branch` is not a branch name.
  */
 async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult>
 
 /**
- * Evaluate the edit rule without writing. A repository without a main branch may still receive its first
- * manifest: `content` written to the manifest path that declares the branch the checkout is on.
+ * Evaluate the edit rule without writing: architecture files change only in the primary checkout, on any branch.
  * @param cwd - Session directory.
  * @param path - target, relative to the repository root or absolute.
- * @param content - the content {@link edit} would write; only a first manifest reads it.
- * @param signal - cancels a jj branch query.
  * @returns the refusal, or undefined when {@link edit} would write.
  */
-async checkEdit(cwd: string, path: string, content?: string, signal?: AbortSignal): Promise<EditRefusal | undefined>
+checkEdit(cwd: string, path: string): EditRefusal | undefined
 ```
 
 Types: [Agent](core.zh.md) · [SessionId](core.zh.md)

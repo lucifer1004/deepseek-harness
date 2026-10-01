@@ -2,7 +2,7 @@
   "initial": [
     {
       "name": "architecture_edit",
-      "description": "Write an architecture source, the manifest, or a file under the local architecture directory, only after the user agreed to the change. With anchor, replace that section from its heading through its last line; include the heading in content, and pass the hash from architecture_read so a concurrent change is refused. Without anchor, content replaces or creates the whole file. Writes only in the primary worktree on the main branch.",
+      "description": "Write an architecture source, the manifest, or a file under the local architecture directory, only after the user agreed to the change. With anchor, replace that section from its heading through its last line; include the heading in content, and pass the hash from architecture_read so a concurrent change is refused. Without anchor, content replaces or creates the whole file. Writes only in the primary worktree or jj workspace, on any branch.",
       "parameters": {
         "type": "object",
         "properties": {
