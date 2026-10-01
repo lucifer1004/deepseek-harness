@@ -2,6 +2,7 @@
 # Only the architecture agent edits these files, and only in the primary worktree on
 # the configured main branch. Chinese counterparts mirror the English sources and are
 # excluded, so each decision has one citable text.
+mainBranch: "local/main"
 sources:
   - docs/architecture.md
   - docs/capability-seams.md
