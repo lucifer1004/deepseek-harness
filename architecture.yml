@@ -1,7 +1,7 @@
 # Architecture sources of DeepSeek Harness, read by @deepseek-ai/dsh-experimental-architecture.
-# Only the architecture agent edits these files, and only in the primary worktree on
-# the configured main branch. Chinese counterparts mirror the English sources and are
-# excluded, so each decision has one citable text.
+# Only the architecture agent edits these files, and only in the primary checkout; Rulings
+# cite only sections committed on mainBranch. Chinese counterparts mirror the English
+# sources and are excluded, so each decision has one citable text.
 mainBranch: "local/main"
 sources:
   - docs/architecture.md
