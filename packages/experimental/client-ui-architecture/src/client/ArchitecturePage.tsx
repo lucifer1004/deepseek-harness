@@ -32,6 +32,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ArchitectureKey } from './locales.ts'
 import type { ArchitectModelForm } from './architect-model.ts'
 import type { DashboardState } from './dashboard-source.ts'
+import { counted } from './counted.ts'
 import { Fold } from './Fold.tsx'
 import { ProposedEdits } from './ProposedEdits.tsx'
 import { SettingsView } from './SettingsView.tsx'
@@ -246,17 +247,15 @@ function Unsupported({ unsupported, t }: { unsupported: NonNullable<Architecture
 }
 
 function Summary({ snapshot, t }: { snapshot: ArchitectureSnapshot; t: Translate }): ReactNode {
+  const counts = {
+    sources: counted(t, 'count.sources', snapshot.index.sources.length),
+    sections: counted(t, 'count.sections', snapshot.index.sections.length),
+    revision: snapshot.revision,
+  }
   return (
     <p className={css.summary}>
-      {snapshot.mainBranch === undefined
-        ? t('summary.noBranch', { sources: String(snapshot.index.sources.length), sections: String(snapshot.index.sections.length), revision: snapshot.revision })
-        : t('summary', {
-          branch: snapshot.mainBranch,
-          sources: String(snapshot.index.sources.length),
-          sections: String(snapshot.index.sections.length),
-          revision: snapshot.revision,
-        })}
-      {snapshot.problems.length > 0 && <Tag tone="danger" className={css.inlineTag}>{t('problems', { count: String(snapshot.problems.length) })}</Tag>}
+      {snapshot.mainBranch === undefined ? t('summary.noBranch', counts) : t('summary', { branch: snapshot.mainBranch, ...counts })}
+      {snapshot.problems.length > 0 && <Tag tone="danger" className={css.inlineTag}>{counted(t, 'problems', snapshot.problems.length)}</Tag>}
     </p>
   )
 }
@@ -291,7 +290,7 @@ function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceV
       <div className={css.list}>
         {snapshot.mainBranch === undefined && <p className={css.notice}>{t('noBranch', { manifest: snapshot.manifestPath })}</p>}
         {snapshot.index.diagnostics.length > 0 && (
-          <p className={css.notice}>{t('diagnostics', { count: String(snapshot.index.diagnostics.length) })}</p>
+          <p className={css.notice}>{counted(t, 'diagnostics', snapshot.index.diagnostics.length)}</p>
         )}
         <SourceList snapshot={snapshot} openCite={open?.cite} show={show} t={t} />
       </div>
@@ -363,9 +362,9 @@ function RulingCard(props: RulingCardProps): ReactNode {
   const { record, now, t } = props
   const { ruling } = record
   const counts = [
-    t('ruling.count.constraints', { count: String(ruling.constraints.length) }),
+    counted(t, 'ruling.count.constraints', ruling.constraints.length),
     ...ruling.unresolved.length === 0 ? [] : [t('ruling.count.unresolved', { count: String(ruling.unresolved.length) })],
-    ...ruling.proposedEdits.length === 0 ? [] : [t('ruling.count.proposedEdits', { count: String(ruling.proposedEdits.length) })],
+    ...ruling.proposedEdits.length === 0 ? [] : [counted(t, 'ruling.count.proposedEdits', ruling.proposedEdits.length)],
   ]
   return (
     <li className={css.card}>

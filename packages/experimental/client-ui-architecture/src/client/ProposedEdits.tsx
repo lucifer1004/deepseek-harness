@@ -7,6 +7,7 @@ import { Button, DiffBlock, Tag, type DiffBlockLabels } from '@deepseek-ai/dsh-c
 import type { ArchitectureSectionValue, ArchitectureSnapshot, ProposedEdit, RulingId, RulingRecord } from '@deepseek-ai/dsh-experimental-api-architecture/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { Translate } from './SettingsView.tsx'
+import { counted } from './counted.ts'
 import { Fold } from './Fold.tsx'
 import css from './ArchitecturePage.module.css'
 
@@ -65,9 +66,9 @@ function ProposedEditItem(props: ProposedEditItemProps): ReactNode {
     wrapLabel: t('markdown.wrap'),
     unwrapLabel: t('markdown.unwrap'),
     collapseAria: t('diff.collapse'),
-    expandAria: hidden => t('diff.expandAria', { count: String(hidden) }),
+    expandAria: hidden => counted(t, 'diff.expandAria', hidden),
     collapse: t('diff.collapse'),
-    expand: hidden => t('diff.expand', { count: String(hidden) }),
+    expand: hidden => counted(t, 'diff.expand', hidden),
   }), [t])
   const apply = (accept: boolean): void => {
     setBusy(true)

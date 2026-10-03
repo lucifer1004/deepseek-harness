@@ -9,7 +9,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { ArchitecturePage, type ArchitecturePageProps, type WorkspaceChoice } from '../src/client/ArchitecturePage.tsx'
 import type { DashboardState } from '../src/client/dashboard-source.ts'
 import type { ArchitectModelForm, ArchitectModelState } from '../src/client/architect-model.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh, type ArchitectureKey } from '../src/client/locales.ts'
 
 afterEach(() => { cleanup() })
 
@@ -141,6 +141,7 @@ function fixture(
   state: Partial<DashboardState> = {},
   choices: readonly WorkspaceChoice[] = [{ workspaceId: WS, title: 'repo' }],
   architectModel?: ArchitectModelForm,
+  dictionary: Record<ArchitectureKey, string> = zh,
 ) {
   const dashboard = createSnapshotStore<DashboardState>({ workspaceId: WS, snapshot: snapshot(), error: null, ...state })
   const workspaces = createSnapshotStore<readonly WorkspaceChoice[]>(choices)
@@ -157,7 +158,7 @@ function fixture(
     setMainBranch: vi.fn<ArchitecturePageProps['setMainBranch']>(async () => undefined),
     applyProposedEdit: vi.fn<ArchitecturePageProps['applyProposedEdit']>(async () => undefined),
     architectModel,
-    t: makeTranslate(zh),
+    t: makeTranslate(dictionary),
   }
   render(<ArchitecturePage {...(props as never as ArchitecturePageProps)} />)
   return { props, dashboard }
@@ -229,6 +230,31 @@ describe('ArchitecturePage', () => {
     fireEvent.click(screen.getByRole('tab', { name: zh['index.scope.uncommitted'] }))
     expect(screen.getByText('1 个来源 · 1 个章节')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^arch\.md/ })).toBeNull()
+  })
+
+  it('writes English counts in the singular for one and the plural otherwise', async () => {
+    const base = snapshot()
+    const first = base.rulings[0]
+    if (first === undefined) throw new Error('fixture has no Ruling')
+    const single = {
+      ...base,
+      index: { ...base.index, sources: ['design/arch.md'] as never, sections: base.index.sections.slice(1, 2), diagnostics: [] },
+      rulings: [{ ...first, ruling: { ...first.ruling, proposedEdits: [{ path: 'design/arch.md', anchor: 'storage', hash: HASH, content: 'x', rationale: 'r' }] as never } }],
+    }
+    const { dashboard } = fixture({ snapshot: single }, undefined, undefined, en)
+    expect(screen.getByText(/^Branch main · 1 source · 1 section · revision/)).toBeTruthy()
+    expect(screen.getByText('1 record file could not be read')).toBeTruthy()
+    expect(screen.getByText('1 source · 1 section')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.consultations'] }))
+    expect(screen.getByText('1 constraint · 2 unresolved · 1 proposed edit')).toBeTruthy()
+    const diagnostics = [{ path: 'a.md', message: 'x' }, { path: 'b.md', message: 'y' }] as never
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: snapshot({ problems: [{ file: 'a', message: 'b' }, { file: 'c', message: 'd' }] as never }) })
+    expect(await screen.findByText('2 record files could not be read')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.architecture'] }))
+    expect(screen.getByText('1 source could not be indexed')).toBeTruthy()
+    const twice = snapshot()
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: { ...twice, index: { ...twice.index, diagnostics } } })
+    expect(await screen.findByText('2 sources could not be indexed')).toBeTruthy()
   })
 
   it('explains a workspace outside version control and offers no discussion there', async () => {

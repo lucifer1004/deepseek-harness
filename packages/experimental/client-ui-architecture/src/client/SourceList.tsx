@@ -6,6 +6,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { DisclosureRow, FileTypeIcon, IconSearchOutlineRegular, Input, SegmentedControl, Tag, type TagTone } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ArchitectureSnapshot, GitFileStatus, IndexedSection } from '@deepseek-ai/dsh-experimental-api-architecture/types'
 import type { Translate } from './SettingsView.tsx'
+import { counted } from './counted.ts'
 import css from './ArchitecturePage.module.css'
 
 /** Tag tone of each git status of a file. */
@@ -113,7 +114,7 @@ export function SourceList({ snapshot, openCite, show, t }: SourceListProps): Re
           label={t('index.scope')}
         />
       </div>
-      <p className={css.meta}>{t('index.count', { sources: String(sourceCount), sections: String(sectionCount) })}</p>
+      <p className={css.meta}>{t('index.count', { sources: counted(t, 'count.sources', sourceCount), sections: counted(t, 'count.sections', sectionCount) })}</p>
       {directories.length === 0 && <p className={css.empty}>{t('index.noMatch')}</p>}
       {directories.map(([directory, entries]) => (
         <DisclosureRow
@@ -147,7 +148,7 @@ export function SourceList({ snapshot, openCite, show, t }: SourceListProps): Re
                     {entry.status !== 'committed' && <Tag tone={STATUS_TONE[entry.status]}>{t(`status.${entry.status}`)}</Tag>}
                     <span className={css.meta}>
                       {entry.shown.length === entry.sections.length
-                        ? t('source.sections', { count: String(entry.sections.length) })
+                        ? counted(t, 'count.sections', entry.sections.length)
                         : t('source.matched', { count: String(entry.shown.length), total: String(entry.sections.length) })}
                     </span>
                   </>
