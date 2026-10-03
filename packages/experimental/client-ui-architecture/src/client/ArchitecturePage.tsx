@@ -34,6 +34,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ArchitectureKey } from './locales.ts'
 import type { ArchitectModelForm } from './architect-model.ts'
 import type { DashboardState } from './dashboard-source.ts'
+import { Fold } from './Fold.tsx'
 import { ProposedEdits } from './ProposedEdits.tsx'
 import { SettingsView } from './SettingsView.tsx'
 import css from './ArchitecturePage.module.css'
@@ -422,44 +423,61 @@ type RulingCardProps = WorkspaceViewProps & { readonly record: RulingRecord & { 
 function RulingCard(props: RulingCardProps): ReactNode {
   const { record, now, t } = props
   const { ruling } = record
+  const counts = [
+    t('ruling.count.constraints', { count: String(ruling.constraints.length) }),
+    ...ruling.unresolved.length === 0 ? [] : [t('ruling.count.unresolved', { count: String(ruling.unresolved.length) })],
+    ...ruling.proposedEdits.length === 0 ? [] : [t('ruling.count.proposedEdits', { count: String(ruling.proposedEdits.length) })],
+  ]
   return (
     <li className={css.card}>
-      <header className={css.cardHeading}>
-        <span className={css.question}>{ruling.question}</span>
-        <Tag tone={RULING_TONE[record.status]}>{t(`ruling.status.${record.status}`)}</Tag>
-        {record.stale && <Tag tone="warning">{t('ruling.stale')}</Tag>}
-      </header>
-      <p className={css.meta}>
-        {ruling.id} · {t('ruling.meta', { time: ago(t, record.issuedAt, now), session: record.workerSession })}
-      </p>
-      {ruling.summary !== '' && <p>{ruling.summary}</p>}
-      <h3 className={css.subheading}>{t('ruling.constraints')}</h3>
-      {ruling.constraints.length === 0
-        ? <p className={css.meta}>{t('ruling.noConstraints')}</p>
-        : (
-          <ol className={css.constraints}>
-            {ruling.constraints.map(constraint => (
-              <li key={constraint.statement}>
-                {constraint.statement}
-                <span className={css.cites}>{constraint.citations.map(citation => `${citation.path}#${citation.anchor}`).join(', ')}</span>
-              </li>
-            ))}
-          </ol>
+      <Fold
+        variant="card"
+        heading={ruling.question}
+        defaultOpen={false}
+        aside={(
+          <>
+            <Tag tone={RULING_TONE[record.status]}>{t(`ruling.status.${record.status}`)}</Tag>
+            {record.stale && <Tag tone="warning">{t('ruling.stale')}</Tag>}
+            <span className={css.meta}>{counts.join(' · ')}</span>
+          </>
         )}
-      {ruling.unresolved.length > 0 && (
-        <>
-          <h3 className={css.subheading}>{t('ruling.unresolved')}</h3>
-          <ul className={css.constraints}>
-            {ruling.unresolved.map(point => (
-              <li key={point.statement}>
-                {point.statement}
-                {point.reason !== undefined && <span className={css.cites}>{point.reason}</span>}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-      <ProposedEdits {...props} />
+      >
+        <p className={css.meta}>
+          {ruling.id} · {t('ruling.meta', { time: ago(t, record.issuedAt, now), session: record.workerSession })}
+        </p>
+        {ruling.summary !== '' && (
+          <Fold variant="section" heading={t('ruling.summary')} defaultOpen>
+            <p>{ruling.summary}</p>
+          </Fold>
+        )}
+        <Fold variant="section" heading={t('ruling.constraints')} defaultOpen>
+          {ruling.constraints.length === 0
+            ? <p className={css.meta}>{t('ruling.noConstraints')}</p>
+            : (
+              <ol className={css.constraints}>
+                {ruling.constraints.map(constraint => (
+                  <li key={constraint.statement}>
+                    {constraint.statement}
+                    <span className={css.cites}>{constraint.citations.map(citation => `${citation.path}#${citation.anchor}`).join(', ')}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+        </Fold>
+        {ruling.unresolved.length > 0 && (
+          <Fold variant="section" heading={t('ruling.unresolved')} defaultOpen={false} aside={<span className={css.meta}>{String(ruling.unresolved.length)}</span>}>
+            <ul className={css.constraints}>
+              {ruling.unresolved.map(point => (
+                <li key={point.statement}>
+                  {point.statement}
+                  {point.reason !== undefined && <span className={css.cites}>{point.reason}</span>}
+                </li>
+              ))}
+            </ul>
+          </Fold>
+        )}
+        <ProposedEdits {...props} />
+      </Fold>
     </li>
   )
 }
@@ -505,62 +523,65 @@ function AppealCard({ appeal, question, decide, now, t }: {
   }
   return (
     <li className={css.card}>
-      <header className={css.cardHeading}>
-        <span className={css.question}>{question ?? appeal.rulingId}</span>
-        {decided === undefined
+      <Fold
+        variant="card"
+        heading={question ?? appeal.rulingId}
+        defaultOpen={decided === undefined}
+        aside={decided === undefined
           ? <Tag tone="warning">{t('appeal.pending')}</Tag>
           : <Tag tone="info">{decided.kind === 'exception' ? t('appeal.decided.exception', { scope: decided.scope }) : t(`appeal.decided.${decided.kind}`)}</Tag>}
-      </header>
-      <p className={css.meta}>{t('appeal.ruling', { ruling: appeal.rulingId })} · {ago(t, appeal.filedAt, now)}</p>
-      <h3 className={css.subheading}>{t('appeal.reason')}</h3>
-      <p>{appeal.reason}</p>
-      {appeal.evidence.length > 0 && (
-        <>
-          <h3 className={css.subheading}>{t('appeal.evidence')}</h3>
-          <ul className={css.constraints}>{appeal.evidence.map(item => <li key={item}>{item}</li>)}</ul>
-        </>
-      )}
-      {decided !== undefined
-        ? (
-          <p className={css.meta}>
-            {decided.note !== undefined && `${decided.note} · `}
-            {appeal.delivered ? t('appeal.delivered') : t('appeal.undelivered')}
-          </p>
-        )
-        : (
-          <div className={css.decision}>
-            <SegmentedControl
-              id={`decision-${appeal.id}`}
-              value={kind}
-              options={DECISIONS.map(option => ({ value: option, label: t(`appeal.${option}`) }))}
-              onChange={setKind}
-              label={t('appeal.decision')}
-              disabled={busy}
-            />
-            {kind === 'exception' && (
+      >
+        <p className={css.meta}>{t('appeal.ruling', { ruling: appeal.rulingId })} · {ago(t, appeal.filedAt, now)}</p>
+        <h3 className={css.subheading}>{t('appeal.reason')}</h3>
+        <p>{appeal.reason}</p>
+        {appeal.evidence.length > 0 && (
+          <>
+            <h3 className={css.subheading}>{t('appeal.evidence')}</h3>
+            <ul className={css.constraints}>{appeal.evidence.map(item => <li key={item}>{item}</li>)}</ul>
+          </>
+        )}
+        {decided !== undefined
+          ? (
+            <p className={css.meta}>
+              {decided.note !== undefined && `${decided.note} · `}
+              {appeal.delivered ? t('appeal.delivered') : t('appeal.undelivered')}
+            </p>
+          )
+          : (
+            <div className={css.decision}>
+              <SegmentedControl
+                id={`decision-${appeal.id}`}
+                value={kind}
+                options={DECISIONS.map(option => ({ value: option, label: t(`appeal.${option}`) }))}
+                onChange={setKind}
+                label={t('appeal.decision')}
+                disabled={busy}
+              />
+              {kind === 'exception' && (
+                <Input
+                  className={css.decisionField as string}
+                  aria-label={t('appeal.exceptionScope')}
+                  placeholder={t('appeal.exceptionPlaceholder')}
+                  disabled={busy}
+                  value={scope}
+                  onChange={(event) => { setScope(event.target.value) }}
+                />
+              )}
               <Input
                 className={css.decisionField as string}
-                aria-label={t('appeal.exceptionScope')}
-                placeholder={t('appeal.exceptionPlaceholder')}
+                aria-label={t('appeal.note')}
+                placeholder={t('appeal.note')}
                 disabled={busy}
-                value={scope}
-                onChange={(event) => { setScope(event.target.value) }}
+                value={note}
+                onChange={(event) => { setNote(event.target.value) }}
               />
-            )}
-            <Input
-              className={css.decisionField as string}
-              aria-label={t('appeal.note')}
-              placeholder={t('appeal.note')}
-              disabled={busy}
-              value={note}
-              onChange={(event) => { setNote(event.target.value) }}
-            />
-            <Button variant="primary" size="sm" disabled={busy || (kind === 'exception' && scope.trim() === '')} onClick={submit}>
-              {t('appeal.submit')}
-            </Button>
-            {failed && <p className={css.notice} role="alert">{t('appeal.failed')}</p>}
-          </div>
-        )}
+              <Button variant="primary" size="sm" disabled={busy || (kind === 'exception' && scope.trim() === '')} onClick={submit}>
+                {t('appeal.submit')}
+              </Button>
+              {failed && <p className={css.notice} role="alert">{t('appeal.failed')}</p>}
+            </div>
+          )}
+      </Fold>
     </li>
   )
 }

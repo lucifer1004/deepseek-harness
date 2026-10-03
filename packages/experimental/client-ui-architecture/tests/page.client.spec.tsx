@@ -161,6 +161,11 @@ function fixture(
   return { props, dashboard }
 }
 
+/** Open the collapsed card or section whose heading is `name`. */
+function unfold(name: string | RegExp): void {
+  fireEvent.click(screen.getByRole('button', { name, expanded: false }))
+}
+
 function tab(name: string): void {
   fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${name}`) }))
 }
@@ -236,10 +241,20 @@ describe('ArchitecturePage', () => {
   it('lists Rulings with status, staleness, constraints, and unresolved points', () => {
     fixture()
     tab(zh['tab.consultations'])
+    // Collapsed, a card shows its question, tags, and counts only.
     expect(screen.getByText('Where does persistence go?')).toBeTruthy()
     expect(screen.getByText(zh['ruling.status.appealed'])).toBeTruthy()
     expect(screen.getByText(zh['ruling.stale'])).toBeTruthy()
+    expect(screen.getByText('1 条约束 · 2 个未决点')).toBeTruthy()
+    expect(screen.getByText('0 条约束')).toBeTruthy()
+    expect(screen.queryByText('Persist through the store.')).toBeNull()
+    unfold('Where does persistence go?')
+    unfold('Second?')
+    expect(screen.getByText('Use the store.')).toBeTruthy()
     expect(screen.getByText('Persist through the store.')).toBeTruthy()
+    // Unresolved points stay folded inside an open card.
+    expect(screen.queryByText('no citation to an architecture section')).toBeNull()
+    unfold(zh['ruling.unresolved'])
     expect(screen.getByText('design/arch.md#storage')).toBeTruthy()
     expect(screen.getByText('no citation to an architecture section')).toBeTruthy()
     expect(screen.getByText(zh['ruling.noConstraints'])).toBeTruthy()
@@ -266,11 +281,17 @@ describe('ArchitecturePage', () => {
     const long = Array.from({ length: 30 }, (_, line) => `Line ${String(line)}.`).join('\n')
     props.readSection.mockImplementation(async (_ws, path, anchor) => anchor === 'gone' ? undefined : { path, anchor, hash: HASH, text: `## ${anchor}\n\n${long}` })
     tab(zh['tab.consultations'])
+    expect(screen.getByText('1 条约束 · 2 个未决点 · 3 条修改提议')).toBeTruthy()
+    unfold('Where does persistence go?')
     expect(screen.getByText(zh['ruling.proposedEdits'])).toBeTruthy()
     expect(screen.getByText('name the port')).toBeTruthy()
     // The section the architect read changed, so the proposal cannot be applied.
     expect(screen.getByText(zh['ruling.proposedEdit.changed'])).toBeTruthy()
     expect(screen.getByText(zh['ruling.proposedEdit.changedHint'])).toBeTruthy()
+    // A diff, and with it the actions, appears only when the user opens it; the section is read then.
+    expect(props.readSection).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: zh['ruling.proposedEdit.apply'] })).toBeNull()
+    for (const toggle of screen.getAllByRole('button', { name: zh['ruling.proposedEdit.changes'], expanded: false })) fireEvent.click(toggle)
     expect(await screen.findByText(zh['section.failed'])).toBeTruthy()
     expect(await screen.findByText(/Revised\./)).toBeTruthy()
     expect(props.readSection).toHaveBeenCalledWith(WS, 'design/arch.md', 'storage')
@@ -300,6 +321,8 @@ describe('ArchitecturePage', () => {
     let finish: (value: undefined) => void = () => undefined
     props.readSection.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
     tab(zh['tab.consultations'])
+    unfold('Where does persistence go?')
+    unfold(zh['ruling.proposedEdit.changes'])
     await waitFor(() => { expect(props.readSection).toHaveBeenCalled() })
     tab(zh['tab.architecture'])
     finish(undefined)
@@ -312,6 +335,9 @@ describe('ArchitecturePage', () => {
     tab(zh['tab.appeals'])
     expect(screen.getByRole('tab', { name: `${zh['tab.appeals']} · 1` })).toBeTruthy()
     expect(screen.getByText('已豁免：src/a.ts')).toBeTruthy()
+    // A decided appeal is collapsed; a pending one is open for the decision.
+    expect(screen.queryByText(/only there · 已送达工作会话/)).toBeNull()
+    for (const toggle of screen.getAllByRole('button', { expanded: false })) fireEvent.click(toggle)
     expect(screen.getByText(/only there · 已送达工作会话/)).toBeTruthy()
     expect(screen.getByText(zh['appeal.undelivered'])).toBeTruthy()
     expect(screen.getByText('针对裁定 ruling-gone', { exact: false })).toBeTruthy()

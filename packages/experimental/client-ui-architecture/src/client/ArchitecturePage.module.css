@@ -267,6 +267,66 @@
   font-weight: 500;
 }
 
+/* Collapsible card and section headings. */
+.foldHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.foldHeading .subheading {
+  margin-block: 8px 4px;
+}
+
+.foldToggle {
+  display: inline-flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.foldHeading .foldToggle {
+  flex: none;
+  align-items: center;
+}
+
+.foldToggle:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.foldChevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.foldHeading .foldChevron {
+  margin-top: 0;
+}
+
+.foldTitle {
+  min-width: 0;
+}
+
+/* A collapsed card shows one line of its question. */
+.fold:not([data-open]) > .cardHeading .question {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .constraints {
   margin: 0;
   padding-inline-start: 20px;

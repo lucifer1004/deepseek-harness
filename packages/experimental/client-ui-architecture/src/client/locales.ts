@@ -127,6 +127,11 @@ export const zh = {
   'ruling.proposedEdit.changed': '章节已变化',
   'ruling.proposedEdit.changedHint': '架构师读取之后此章节已被修改，此提议不能再应用。请重新咨询。',
   'ruling.proposedEdit.failed': '未能应用：{message}',
+  'ruling.proposedEdit.changes': '查看改动',
+  'ruling.summary': '摘要',
+  'ruling.count.constraints': '{count} 条约束',
+  'ruling.count.unresolved': '{count} 个未决点',
+  'ruling.count.proposedEdits': '{count} 条修改提议',
 } as const
 
 /** Key domain of the `architecture` namespace. */
@@ -256,4 +261,9 @@ export const en: Record<ArchitectureKey, string> = {
   'ruling.proposedEdit.changed': 'Section changed',
   'ruling.proposedEdit.changedHint': 'The section changed after the architect read it, so this proposal can no longer be applied. Consult again.',
   'ruling.proposedEdit.failed': 'Not applied: {message}',
+  'ruling.proposedEdit.changes': 'Show changes',
+  'ruling.summary': 'Summary',
+  'ruling.count.constraints': '{count} constraints',
+  'ruling.count.unresolved': '{count} unresolved',
+  'ruling.count.proposedEdits': '{count} proposed edits',
 }
