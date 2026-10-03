@@ -40,12 +40,20 @@ const rulingSchema = z.strictObject({
       citations: z.array(z.strictObject({ path: sourcePath, anchor: z.string(), hash: sectionHash })),
     })),
     unresolved: z.array(z.strictObject({ statement: z.string(), reason: z.string().optional() })),
+    proposedEdits: z.array(z.strictObject({
+      path: sourcePath,
+      anchor: z.string(),
+      hash: sectionHash,
+      content: z.string(),
+      rationale: z.string(),
+    })),
   }),
   workerSession: sessionId,
   architectSession: sessionId,
   revision: z.string().min(1),
   issuedAt: z.number().int().nonnegative(),
   status: z.enum(['issued', 'appealed', 'upheld', 'overturned', 'excepted']),
+  appliedEdits: z.array(z.number().int().nonnegative()),
 })
 
 const appealSchema = z.strictObject({

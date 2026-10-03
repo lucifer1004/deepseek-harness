@@ -12,7 +12,9 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import ArchitectureService from '@deepseek-ai/dsh-experimental-architecture'
+import type { RulingId, SectionHash, SourcePath } from '@deepseek-ai/dsh-experimental-architecture/types'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -320,9 +322,25 @@ describe('consult_architect', () => {
   })
 
   it('renders a consultation without a Ruling', () => {
-    expect(WorkerTools.renderConsultation({ status: 'timeout', rulingId: 'r1', constraints: [], unresolved: [] })).toMatch(/did not answer in time \(r1\)/)
-    expect(WorkerTools.renderConsultation({ status: 'no-submission', rulingId: 'r2', constraints: [], unresolved: [] })).toMatch(/ended without a Ruling \(r2\)/)
-    expect(WorkerTools.renderConsultation({ status: 'ruling', rulingId: 'r3', constraints: [], unresolved: [] })).toBe('Ruling r3: \n\nNo binding constraints.')
+    expect(WorkerTools.renderConsultation({ status: 'timeout', rulingId: 'r1', constraints: [], unresolved: [], proposedEdits: [] })).toMatch(/did not answer in time \(r1\)/)
+    expect(WorkerTools.renderConsultation({ status: 'no-submission', rulingId: 'r2', constraints: [], unresolved: [], proposedEdits: [] })).toMatch(/ended without a Ruling \(r2\)/)
+    expect(WorkerTools.renderConsultation({ status: 'ruling', rulingId: 'r3', constraints: [], unresolved: [], proposedEdits: [] })).toBe('Ruling r3: \n\nNo binding constraints.')
+  })
+
+  it('tells the worker which sections a Ruling proposes to change, and that the current text governs', () => {
+    const value = WorkerTools.consultValue({
+      kind: 'ruling',
+      session: SessionId('a'),
+      revision: 'r',
+      ruling: {
+        id: brandString<RulingId>('r4'), question: 'q', scope: [], summary: 's', constraints: [], unresolved: [],
+        proposedEdits: [{ path: brandString<SourcePath>('design/arch.md'), anchor: 'storage', hash: brandString<SectionHash>('h'), content: 'secret text', rationale: 'name the port' }],
+      },
+    })
+    expect(value.proposedEdits).toEqual([{ section: 'design/arch.md#storage', rationale: 'name the port' }])
+    expect(WorkerTools.renderConsultation(value)).toBe('Ruling r4: s\n\nNo binding constraints.\n\n'
+      + 'Proposed record changes, waiting for the user to review and apply:\n- design/arch.md#storage: name the port\n'
+      + 'Until the user applies one and it is committed on the main branch or accepted, the current text governs.')
   })
 
   it('logs a Ruling record that could not be written without failing the consultation', async () => {

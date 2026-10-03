@@ -25,6 +25,7 @@ export const CONSULTATION_INSTRUCTION = [
   'You are answering one consultation from a worker agent. Read the architecture sources and the code you need, then call `submit_ruling` exactly once.',
   'Put a requirement in `constraints` only when an architecture section states or directly implies it, and cite every such section as `path#anchor` from `architecture_index`. The host drops a citation that does not match the section committed on the main branch, and turns its constraint into an unresolved point.',
   'Put judgments without a citable section, and questions the user must decide, in `unresolved`. Do not answer with plain text: only the `submit_ruling` call counts.',
+  'You cannot change the record. When the answer needs a section of the record rewritten, put the complete new section in `proposedEdits` with the hash `architecture_read` returned, and keep it out of `summary`. The user reviews each proposed edit and applies it or not; until the result is committed on the main branch or accepted, constraints must cite the sections as they stand. A new file is not a proposed edit; name it in `unresolved`.',
 ].join('\n\n')
 
 /** Inputs of one consultation run. */
@@ -78,11 +79,26 @@ const SUBMISSION_PARAMETERS = {
     items: { type: 'string' },
     description: 'Judgments without a citable section, and questions for the user.',
   },
+  proposedEdits: {
+    type: 'array',
+    description: 'Section rewrites for the user to review. Each replaces one indexed section; omit when the record needs no change.',
+    items: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        cite: { type: 'string', required: true, description: 'Section to replace as path#anchor.' },
+        hash: { type: 'string', required: true, description: 'Hash of the section as architecture_read returned it.' },
+        content: { type: 'string', required: true, description: 'The complete new section, from its heading through its last line.' },
+        rationale: { type: 'string', required: true, description: 'Why the section should change.' },
+      },
+    },
+  },
 } as const
 
 /**
- * Architect tools a consultation withholds. The user takes no part in a consultation, and the record changes only
- * after the user agrees in an Architecture Session, so the architect neither edits the record nor asks the user.
+ * Architect tools a consultation withholds. The user takes no part in a consultation, so the architect does not ask
+ * the user, and a worker's report of the user's consent does not authorize a write. The record changes only when the
+ * user agrees in an Architecture Session or applies a proposed edit from the Ruling in the dashboard.
  */
 export const CONSULTATION_WITHHELD_TOOLS: readonly string[] = ['architecture_edit', 'ask_user_question']
 
@@ -145,6 +161,7 @@ export async function runConsultation(run: ConsultationRun): Promise<Consultatio
             summary: args.summary,
             constraints: args.constraints.map(entry => ({ statement: entry.statement, cites: entry.cites })),
             unresolved: args.unresolved,
+            edits: (args.proposedEdits ?? []).map(({ cite, hash, content, rationale }) => ({ cite, hash, content, rationale })),
           }
           exec.concludeTurn()
           return Promise.resolve({ recorded: true })

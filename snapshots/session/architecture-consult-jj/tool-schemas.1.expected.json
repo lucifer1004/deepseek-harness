@@ -138,6 +138,38 @@
             "items": {
               "type": "string"
             }
+          },
+          "proposedEdits": {
+            "type": "array",
+            "description": "Section rewrites for the user to review. Each replaces one indexed section; omit when the record needs no change.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cite": {
+                  "type": "string",
+                  "description": "Section to replace as path#anchor."
+                },
+                "hash": {
+                  "type": "string",
+                  "description": "Hash of the section as architecture_read returned it."
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The complete new section, from its heading through its last line."
+                },
+                "rationale": {
+                  "type": "string",
+                  "description": "Why the section should change."
+                }
+              },
+              "required": [
+                "cite",
+                "hash",
+                "content",
+                "rationale"
+              ]
+            }
           }
         },
         "required": [

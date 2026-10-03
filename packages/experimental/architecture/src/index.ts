@@ -29,10 +29,12 @@ import { declaredMainBranch, ManifestError, parseManifest, withMainBranch } from
 import { locateCheckout } from './repository.ts'
 import { ACCEPTANCES_FILE, APPEALS_DIRECTORY, isMissing, RecordStore, RULINGS_DIRECTORY } from './records.ts'
 import { validateRuling } from './ruling.ts'
-import { indexSections, sectionText } from './sections.ts'
+import { hashSection, indexSections, sectionText } from './sections.ts'
 import type {
   ArchitectureEditRequest,
   ArchitectureEditResult,
+  ApplyProposedEditRequest,
+  ApplyProposedEditResult,
   ArchitectureIndex,
   ArchitectureManifest,
   CheckoutBranches,
@@ -512,9 +514,9 @@ export class ArchitectureService extends Service {
    * @param cwd - the worker Session's directory.
    * @param record - Ruling, Sessions, and index revision; status starts at `issued`.
    */
-  async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status'>): Promise<void> {
+  async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status' | 'appliedEdits'>): Promise<void> {
     const root = this.primaryRoot(cwd)
-    await this.serialize(root, () => this.store(root).writeRuling({ version: 1, ...record, issuedAt: Date.now(), status: 'issued' }))
+    await this.serialize(root, () => this.store(root).writeRuling({ version: 1, ...record, issuedAt: Date.now(), status: 'issued', appliedEdits: [] }))
     this.changed(root)
   }
 
@@ -601,6 +603,45 @@ export class ArchitectureService extends Service {
         await this.deliver(checkout.primaryRoot, appeal)
       }
     }
+  }
+
+  /**
+   * Apply one proposed edit of a recorded Ruling from the primary checkout, under the edit rule. The write is refused
+   * when the section changed since the architect read it. With `accept`, the section the write produced is accepted.
+   * @param request - repository directory, Ruling, the edit's index in `ruling.proposedEdits`, and whether to accept.
+   * @returns the written path, or the refusal; an accepted section is returned with the written result.
+   * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied.
+   */
+  async applyProposedEdit(request: ApplyProposedEditRequest): Promise<ApplyProposedEditResult> {
+    const root = this.primaryRoot(request.cwd)
+    const record = (await this.store(root).read()).rulings.get(request.rulingId)
+    if (record === undefined) throw new Error(`architecture: no Ruling ${request.rulingId}`)
+    const edit = record.ruling.proposedEdits[request.index]
+    if (edit === undefined) throw new Error(`architecture: Ruling ${request.rulingId} has no proposed edit ${request.index}`)
+    if (record.appliedEdits.includes(request.index)) throw new Error(`architecture: proposed edit ${request.index} of Ruling ${request.rulingId} is already applied`)
+    const { path, anchor, hash, content } = edit
+    const result = await this.edit({ cwd: request.cwd, path, anchor, expectedHash: hash, content, signal: request.signal })
+    if (result.kind === 'refused') return result
+    await this.serialize(root, async () => {
+      const store = this.store(root)
+      const current = (await store.read()).rulings.get(request.rulingId)
+      /* v8 ignore next -- Ruling records are never deleted by the service. */
+      if (current === undefined) return
+      await store.writeRuling({ ...current, appliedEdits: [...current.appliedEdits, request.index] })
+    })
+    if (!request.accept) {
+      this.changed(root)
+      return result
+    }
+    // A changed heading changes the anchor, so the written section is found by the hash of the reviewed content. Content
+    // that splits into several sections matches none, and then nothing is accepted.
+    const written = this.index(root)?.sections.find(section => section.path === edit.path && section.hash === hashSection(edit.content))
+    if (written === undefined) {
+      this.changed(root)
+      return { ...result, acceptance: undefined }
+    }
+    const acceptance = await this.accept(root, written.path, written.anchor, written.hash)
+    return { ...result, acceptance }
   }
 
   /**

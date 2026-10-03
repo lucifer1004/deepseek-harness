@@ -26,6 +26,7 @@ import type {
   ArchitectureSnapshot,
   GitFileStatus,
   IndexedSection,
+  RulingId,
   RulingRecord,
   RulingStatus,
 } from '@deepseek-ai/dsh-experimental-api-architecture/types'
@@ -33,6 +34,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ArchitectureKey } from './locales.ts'
 import type { ArchitectModelForm } from './architect-model.ts'
 import type { DashboardState } from './dashboard-source.ts'
+import { ProposedEdits } from './ProposedEdits.tsx'
 import { SettingsView } from './SettingsView.tsx'
 import css from './ArchitecturePage.module.css'
 
@@ -58,6 +60,8 @@ export interface ArchitecturePageInjected {
   readonly accept: (workspaceId: WorkspaceId, section: ArchitectureSectionValue) => Promise<boolean>
   /** Decide one appeal; resolves false on failure. */
   readonly adjudicate: (workspaceId: WorkspaceId, appealId: AppealId, adjudication: Adjudication) => Promise<boolean>
+  /** Apply one proposed edit of a Ruling; resolves to the failure message, or undefined once written. */
+  readonly applyProposedEdit: (workspaceId: WorkspaceId, rulingId: RulingId, index: number, accept: boolean) => Promise<string | undefined>
   /** Declare the main branch in the manifest; resolves to the failure message, or undefined once written. */
   readonly setMainBranch: (workspaceId: WorkspaceId, branch: string) => Promise<string | undefined>
   /** The profile's architect-model form; undefined when the client has no settings service. */
@@ -153,7 +157,7 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
                           <SegmentedTabs items={tabs} value={view} onChange={setView} label={t('tabs.label')} />
                           <section id="architecture-panel" role="tabpanel" aria-labelledby={`architecture-tab-${view}`} className={css.panel}>
                             {view === 'architecture' && <IndexView {...props} workspaceId={workspaceId} snapshot={snapshot} />}
-                            {view === 'consultations' && <RulingsView snapshot={snapshot} now={now} t={t} />}
+                            {view === 'consultations' && <RulingsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
                             {view === 'appeals' && <AppealsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
                             {view === 'local' && <LocalView snapshot={snapshot} t={t} />}
                             {view === 'settings' && (
@@ -403,16 +407,20 @@ function SectionText({ text, t }: { text: string; t: Translate }): ReactNode {
   return <div className={css.document}><MarkdownText text={text} labels={labels} /></div>
 }
 
-function RulingsView({ snapshot, now, t }: { snapshot: ArchitectureSnapshot; now: number; t: Translate }): ReactNode {
+function RulingsView(props: WorkspaceViewProps & { readonly now: number }): ReactNode {
+  const { snapshot, t } = props
   if (snapshot.rulings.length === 0) return <p className={css.empty}>{t('consultations.empty')}</p>
   return (
     <ul className={css.cards}>
-      {snapshot.rulings.map(record => <RulingCard key={record.ruling.id} record={record} now={now} t={t} />)}
+      {snapshot.rulings.map(record => <RulingCard key={record.ruling.id} {...props} record={record} />)}
     </ul>
   )
 }
 
-function RulingCard({ record, now, t }: { record: RulingRecord & { readonly stale: boolean }; now: number; t: Translate }): ReactNode {
+type RulingCardProps = WorkspaceViewProps & { readonly record: RulingRecord & { readonly stale: boolean }; readonly now: number }
+
+function RulingCard(props: RulingCardProps): ReactNode {
+  const { record, now, t } = props
   const { ruling } = record
   return (
     <li className={css.card}>
@@ -451,6 +459,7 @@ function RulingCard({ record, now, t }: { record: RulingRecord & { readonly stal
           </ul>
         </>
       )}
+      <ProposedEdits {...props} />
     </li>
   )
 }

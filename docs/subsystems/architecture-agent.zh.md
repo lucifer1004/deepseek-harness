@@ -12,19 +12,19 @@
 
 ## 咨询与裁定
 
-工作 Agent 的 `ConsultRequest` 在其 Session 下以隐藏子 Agent 的形式运行架构师，使用配置的架构师模型；未配置时使用工作 Agent 的模型。架构师只能使用配置的工具，并且必须调用 `submit_ruling`。服务把提交内容转换为裁定（Ruling）：只有当约束的每条引用都指向当前内容已提交到主分支或已被用户接受的已索引章节时，该约束才具有约束力。其他约束连同原因成为未决点。`ConsultResult` 是附带索引修订的裁定、超时，或未提交即结束的运行。
+工作 Agent 的 `ConsultRequest` 在其 Session 下以隐藏子 Agent 的形式运行架构师，使用配置的架构师模型；未配置时使用工作 Agent 的模型。架构师只能使用配置的工具，并且必须调用 `submit_ruling`。服务把提交内容转换为裁定（Ruling）：只有当约束的每条引用都指向当前内容已提交到主分支或已被用户接受的已索引章节时，该约束才具有约束力。其他约束连同原因成为未决点。提交内容还可以附带修改提议，每条按指明的内容哈希替换一个已索引章节。服务按编辑规则和当前索引校验每条提议，把无效的提议连同原因转为未决点；它不写入任何提议。修改提议不约束任何工作 Agent，也不会让任何内容变得可引用。咨询从不修改记录：每次修改都由用户授权，可以在架构会话中进行，也可以在仪表盘中应用修改提议。`ConsultResult` 是附带索引修订的裁定、超时，或未提交即结束的运行。
 
-工作 Agent 的工具结果提交后，工具包在 `.architecture/rulings/` 下写入 `RulingRecord`。记录复制裁定、两个 Session id、索引修订和状态。工作 Agent 的日志仍是其所收到内容的权威来源；记录只是仪表盘的副本。
+工作 Agent 的工具结果提交后，工具包在 `.architecture/rulings/` 下写入 `RulingRecord`。记录复制裁定及其修改提议、两个 Session id、索引修订、状态，以及用户已应用了哪些修改提议。工作 Agent 的日志仍是其所收到内容的权威来源；记录只是仪表盘的副本。
 
 ## 申诉与接受
 
 不同意某条约束的工作 Agent 调用 `appeal_ruling`，并给出理由和证据。服务在 `.architecture/appeals/` 下写入 `AppealRecord`，并将裁定标记为申诉中；裁定仍具有约束力。用户在仪表盘中裁决。`Adjudication` 维持裁定、推翻裁定，或授予限定于指定范围的豁免。服务把裁决作为 `architecture` 用户消息 steer 进工作 Session。该 Session 的 Agent 未运行时，裁决在该 Agent 下次创建时送达。
 
-`Acceptance` 按用户审阅时的确切内容哈希记录一个章节。已接受的章节在提交之前即可被引用；章节之后的任何修改都会取消这一状态。
+`Acceptance` 按用户审阅时的确切内容哈希记录一个章节。已接受的章节在提交之前即可被引用；章节之后的任何修改都会取消这一状态。连同接受一起应用修改提议时，会为写入产生的章节记录一条 `Acceptance`。
 
 ## 仪表盘
 
-仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态及引用章节是否变化的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法在主 checkout 中声明仓库的主分支，可从仓库的本地分支或书签中选择，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
+仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态、引用章节是否变化以及对照当前章节的修改提议的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法在主 checkout 中声明仓库的主分支，可从仓库的本地分支或书签中选择，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“咨询”视图通过 `applyProposedEdit` Remote 方法，在主 checkout 中按编辑规则应用修改提议，并可同时接受由此产生的章节；咨询之后已变化的章节会被拒绝。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
 
 ## 提交与 CI 检查
 
@@ -135,7 +135,7 @@ async consult(request: ConsultRequest): Promise<ConsultResult>
  * @param cwd - the worker Session's directory.
  * @param record - Ruling, Sessions, and index revision; status starts at `issued`.
  */
-async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status'>): Promise<void>
+async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status' | 'appliedEdits'>): Promise<void>
 
 /**
  * File a worker's appeal against a recorded Ruling. The Ruling stays binding
@@ -163,6 +163,15 @@ async adjudicate(cwd: string, appealId: AppealId, adjudication: Adjudication): P
  * @param agent - the live agent.
  */
 async deliverPending(agent: Agent): Promise<void>
+
+/**
+ * Apply one proposed edit of a recorded Ruling from the primary checkout, under the edit rule. The write is refused
+ * when the section changed since the architect read it. With `accept`, the section the write produced is accepted.
+ * @param request - repository directory, Ruling, the edit's index in `ruling.proposedEdits`, and whether to accept.
+ * @returns the written path, or the refusal; an accepted section is returned with the written result.
+ * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied.
+ */
+async applyProposedEdit(request: ApplyProposedEditRequest): Promise<ApplyProposedEditResult>
 
 /**
  * Accept a section's current content so Rulings may cite it before it is
@@ -250,7 +259,16 @@ The `architecture` Remote namespace over `ctx.architecture`, addressed by Worksp
 @Remote async accept(request: ArchitectureAcceptRequest): Promise<Acceptance>
 
 /**
- * Declare the repository's main branch in its manifest, under the main-branch edit rule.
+ * Apply one proposed edit of a recorded Ruling from the primary checkout, and optionally accept the written section.
+ * @param request - Workspace, Ruling, edit index, and whether to accept.
+ * @param signal - Client cancellation.
+ * @returns the written path, and the acceptance when one was recorded.
+ * @throws `architecture/failed` naming the refusal, an unknown Ruling or edit, or an edit already applied.
+ */
+@Remote async applyProposedEdit( request: ArchitectureApplyEditRequest, signal: AbortSignal, ): Promise<{ readonly path: string; readonly acceptance?: Acceptance | undefined }>
+
+/**
+ * Declare the repository's main branch in its manifest, from the primary checkout.
  * @param request - Workspace and branch.
  * @param signal - Client cancellation.
  * @returns the written manifest path.

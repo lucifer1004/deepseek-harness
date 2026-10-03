@@ -6,7 +6,7 @@ import type { RemoteStreamOptions } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type { AppealId, ArchitectureSnapshot } from '@deepseek-ai/dsh-experimental-api-architecture/types'
+import type { AppealId, ArchitectureSnapshot, RulingId } from '@deepseek-ai/dsh-experimental-api-architecture/types'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -129,6 +129,7 @@ async function fixture(options: FixtureOptions = {}) {
     accept: vi.fn(async () => ({ ok: true as const, value: {} })),
     adjudicate: vi.fn(async () => ({ ok: false as const, error: new Error('x') })),
     setMainBranch: vi.fn(async (): Promise<unknown> => ({ ok: true as const, value: { path: 'architecture.yml' } })),
+    applyProposedEdit: vi.fn(async (): Promise<unknown> => ({ ok: true as const, value: { path: 'design/arch.md' } })),
   }
   ctx.provide('remote.architecture', architecture)
   const configForm = {
@@ -176,7 +177,7 @@ function assertDashboardActions(
   value: Record<string, unknown> | undefined,
 ): asserts value is Record<string, unknown> & ArchitecturePageInjected {
   assert(value !== undefined)
-  for (const name of ['selectWorkspace', 'discuss', 'readSection', 'accept', 'adjudicate', 'setMainBranch']) assert(typeof value[name] === 'function')
+  for (const name of ['selectWorkspace', 'discuss', 'readSection', 'accept', 'adjudicate', 'setMainBranch', 'applyProposedEdit']) assert(typeof value[name] === 'function')
   assert(typeof value.hooks === 'object' && value.hooks !== null)
 }
 
@@ -249,6 +250,16 @@ describe('mountArchitecture', () => {
     expect(await actions.setMainBranch(WS, 'main')).toBe('the checkout is on dev')
     b.architecture.setMainBranch.mockResolvedValueOnce({ ok: false, error: new RemoteError('remote/unreachable' as never, 'down', {} as never) })
     expect(await actions.setMainBranch(WS, 'main')).toBe('the server could not be reached.')
+
+    const ruling = 'ruling-1' as RulingId
+    expect(await actions.applyProposedEdit(WS, ruling, 0, true)).toBeUndefined()
+    expect(b.architecture.applyProposedEdit).toHaveBeenCalledWith({ workspaceId: WS, rulingId: ruling, index: 0, accept: true })
+    b.architecture.applyProposedEdit.mockResolvedValueOnce({
+      ok: false, error: new RemoteError('architecture/failed', 'refused', { reason: 'design/arch.md#storage changed since it was read' }),
+    })
+    expect(await actions.applyProposedEdit(WS, ruling, 0, false)).toBe('design/arch.md#storage changed since it was read')
+    b.architecture.applyProposedEdit.mockResolvedValueOnce({ ok: false, error: new RemoteError('remote/unreachable' as never, 'down', {} as never) })
+    expect(await actions.applyProposedEdit(WS, ruling, 0, false)).toBe('the server could not be reached.')
 
     expect(b.configForms.get).toHaveBeenCalledWith('architecture')
     const form = actions.architectModel

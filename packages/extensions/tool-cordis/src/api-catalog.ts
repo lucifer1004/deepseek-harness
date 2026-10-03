@@ -466,7 +466,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.'],
       },
       {
-        signature: 'async recordRuling(cwd: string, record: Omit<RulingRecord, \'version\' | \'issuedAt\' | \'status\'>): Promise<void>',
+        signature: 'async recordRuling(cwd: string, record: Omit<RulingRecord, \'version\' | \'issuedAt\' | \'status\' | \'appliedEdits\'>): Promise<void>',
         description: 'Record a Ruling for the dashboard. Call after the worker\'s log committed the consulting tool result, so the record never names a Ruling the worker did not receive.',
         parameters: [{ name: 'cwd', description: 'the worker Session\'s directory.' }, { name: 'record', description: 'Ruling, Sessions, and index revision; status starts at `issued`.' }],
       },
@@ -488,6 +488,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async deliverPending(agent: Agent): Promise<void>',
         description: 'Deliver every decided, undelivered appeal of a Session whose agent is now live.',
         parameters: [{ name: 'agent', description: 'the live agent.' }],
+      },
+      {
+        signature: 'async applyProposedEdit(request: ApplyProposedEditRequest): Promise<ApplyProposedEditResult>',
+        description: 'Apply one proposed edit of a recorded Ruling from the primary checkout, under the edit rule. The write is refused when the section changed since the architect read it. With `accept`, the section the write produced is accepted.',
+        parameters: [{ name: 'request', description: 'repository directory, Ruling, the edit\'s index in `ruling.proposedEdits`, and whether to accept.' }],
+        returns: 'the written path, or the refusal; an accepted section is returned with the written result.',
+        throws: ['when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied.'],
       },
       {
         signature: 'async accept(cwd: string, path: string, anchor: string, hash: string): Promise<Acceptance>',
@@ -548,8 +555,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the recorded acceptance.',
       },
       {
+        signature: '@Remote async applyProposedEdit( request: ArchitectureApplyEditRequest, signal: AbortSignal, ): Promise<{ readonly path: string; readonly acceptance?: Acceptance | undefined }>',
+        description: 'Apply one proposed edit of a recorded Ruling from the primary checkout, and optionally accept the written section.',
+        parameters: [{ name: 'request', description: 'Workspace, Ruling, edit index, and whether to accept.' }, { name: 'signal', description: 'Client cancellation.' }],
+        returns: 'the written path, and the acceptance when one was recorded.',
+        throws: ['`architecture/failed` naming the refusal, an unknown Ruling or edit, or an edit already applied.'],
+      },
+      {
         signature: '@Remote async setMainBranch(request: ArchitectureMainBranchRequest, signal: AbortSignal): Promise<{ readonly path: string }>',
-        description: 'Declare the repository\'s main branch in its manifest, under the main-branch edit rule.',
+        description: 'Declare the repository\'s main branch in its manifest, from the primary checkout.',
         parameters: [{ name: 'request', description: 'Workspace and branch.' }, { name: 'signal', description: 'Client cancellation.' }],
         returns: 'the written manifest path.',
         throws: ['`architecture/failed` naming the refusal when the rule is not met, or the manifest is missing or invalid.'],
@@ -4707,6 +4721,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AppealRecord {\n    readonly version: 1;\n    readonly id: AppealId;\n    readonly rulingId: RulingId;\n    readonly workerSession: SessionId;\n    readonly reason: string;\n    readonly evidence: readonly string[];\n    readonly filedAt: number;\n    readonly adjudication?: Adjudication | undefined;\n    readonly decidedAt?: number | undefined;\n    readonly delivered: boolean;\n}',
   },
   {
+    name: 'ApplyProposedEditRequest',
+    declaration: 'export interface ApplyProposedEditRequest {\n    readonly cwd: string;\n    readonly rulingId: RulingId;\n    readonly index: number;\n    readonly accept: boolean;\n    readonly signal?: AbortSignal | undefined;\n}',
+  },
+  {
+    name: 'ApplyProposedEditResult',
+    declaration: 'export type ApplyProposedEditResult = (Extract<ArchitectureEditResult, {\n    kind: \'written\';\n}> & {\n    readonly acceptance?: Acceptance | undefined;\n}) | Extract<ArchitectureEditResult, {\n    kind: \'refused\';\n}>;',
+  },
+  {
     name: 'ApprovalOutcome',
     declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
   },
@@ -4729,6 +4751,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ArchitectureAdjudicateRequest',
     declaration: 'export interface ArchitectureAdjudicateRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly appealId: AppealId;\n    readonly adjudication: Adjudication;\n}',
+  },
+  {
+    name: 'ArchitectureApplyEditRequest',
+    declaration: 'export interface ArchitectureApplyEditRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly rulingId: RulingId;\n    readonly index: number;\n    readonly accept: boolean;\n}',
   },
   {
     name: 'ArchitectureEditRequest',
@@ -6343,6 +6369,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PromptSectionOrderName = keyof typeof SECTION_ORDERS;',
   },
   {
+    name: 'ProposedEdit',
+    declaration: 'export interface ProposedEdit {\n    readonly path: SourcePath;\n    readonly anchor: string;\n    readonly hash: SectionHash;\n    readonly content: string;\n    readonly rationale: string;\n}',
+  },
+  {
     name: 'ProviderRequestId',
     declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
   },
@@ -6524,7 +6554,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Ruling',
-    declaration: 'export interface Ruling {\n    readonly id: RulingId;\n    readonly question: string;\n    readonly scope: readonly string[];\n    readonly summary: string;\n    readonly constraints: readonly Constraint[];\n    readonly unresolved: readonly UnresolvedPoint[];\n}',
+    declaration: 'export interface Ruling {\n    readonly id: RulingId;\n    readonly question: string;\n    readonly scope: readonly string[];\n    readonly summary: string;\n    readonly constraints: readonly Constraint[];\n    readonly unresolved: readonly UnresolvedPoint[];\n    readonly proposedEdits: readonly ProposedEdit[];\n}',
   },
   {
     name: 'RulingId',
@@ -6532,7 +6562,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RulingRecord',
-    declaration: 'export interface RulingRecord {\n    readonly version: 1;\n    readonly ruling: Ruling;\n    readonly workerSession: SessionId;\n    readonly architectSession: SessionId;\n    readonly revision: string;\n    readonly issuedAt: number;\n    readonly status: RulingStatus;\n}',
+    declaration: 'export interface RulingRecord {\n    readonly version: 1;\n    readonly ruling: Ruling;\n    readonly workerSession: SessionId;\n    readonly architectSession: SessionId;\n    readonly revision: string;\n    readonly issuedAt: number;\n    readonly status: RulingStatus;\n    readonly appliedEdits: readonly number[];\n}',
   },
   {
     name: 'RulingStatus',

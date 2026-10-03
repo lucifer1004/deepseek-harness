@@ -27,7 +27,7 @@ kind: "package-reference"
 
 与[架构服务](../architecture/README.zh.md)、工作区注册表和 Typert 组合；[Profile Bundle](../architecture-profile/README.zh.md)会添加这一行。每个方法都接收 `WorkspaceId`，由 Host 解析为工作区目录，因此浏览器从不发送路径。
 
-`snapshot(workspaceId)` 返回一个 `ArchitectureSnapshot`。`follow(workspaceId)` 立即流出一个快照，并在该仓库每次发生 `architecture/changed` 事件后再流出一个。`section({ workspaceId, path, anchor })` 返回章节的哈希和文本。`accept({ workspaceId, path, anchor, hash })` 按审阅时的哈希记录 `Acceptance`。`adjudicate({ workspaceId, appealId, adjudication })` 裁决待处理的申诉，并把裁决送达工作 Session。`setMainBranch({ workspaceId, branch })` 在仓库的 manifest 中声明主分支并返回 manifest 路径；从链接 checkout 调用或名称不是本地分支而被拒绝时，以 `architecture/failed` 失败，原因为拒绝的描述。
+`snapshot(workspaceId)` 返回一个 `ArchitectureSnapshot`。`follow(workspaceId)` 立即流出一个快照，并在该仓库每次发生 `architecture/changed` 事件后再流出一个。`section({ workspaceId, path, anchor })` 返回章节的哈希和文本。`accept({ workspaceId, path, anchor, hash })` 按审阅时的哈希记录 `Acceptance`。`adjudicate({ workspaceId, appealId, adjudication })` 裁决待处理的申诉，并把裁决送达工作 Session。`setMainBranch({ workspaceId, branch })` 在仓库的 manifest 中声明主分支并返回 manifest 路径；从链接 checkout 调用或名称不是本地分支而被拒绝时，以 `architecture/failed` 失败，原因为拒绝的描述。`applyProposedEdit({ workspaceId, rulingId, index, accept })` 在主 checkout 中写入已记录裁定的一条修改提议并返回其路径；`accept` 记录了接受时一并返回该接受。被拒绝、Ruling 或索引未知、或提议已应用时，以 `architecture/failed` 失败。
 
 未知工作区以 `architecture/workspace-not-found` 失败。服务失败（例如 manifest 无效或哈希过期）以 `architecture/failed` 及其原因失败。客户端取消作为取消传播。
 

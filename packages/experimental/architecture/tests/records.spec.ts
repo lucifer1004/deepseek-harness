@@ -73,6 +73,7 @@ function record(revision = 'r1') {
         citations: [{ path: brandString<never>('design/arch.md'), anchor: 'storage', hash: brandString<never>('0'.repeat(64)) }],
       }],
       unresolved: [{ statement: 'Caching?' }],
+      proposedEdits: [],
     },
     workerSession: WORKER,
     architectSession: brandString<SessionId>('architect'),
@@ -171,6 +172,65 @@ describe('architecture records', () => {
     const gitRepo = await scratch()
     git(gitRepo, 'init', '-q', '-b', 'main')
     expect(await ctx.architecture.snapshot(gitRepo)).toMatchObject({ unsupported: { kind: 'vcs-missing', vcs: 'git' } })
+  })
+
+  it('applies a proposed edit through the edit rule, records it, and accepts the written section', async () => {
+    const repo = await fixture()
+    const ctx = await boot()
+    const index = await ctx.architecture.rebuild(repo)
+    const storage = index?.sections.find(section => section.anchor === 'storage')
+    if (storage === undefined) throw new Error('storage missing')
+    const edit = (anchor: string, content: string) => ({ path: storage.path, anchor, hash: storage.hash, content, rationale: 'r' })
+    await ctx.architecture.recordRuling(repo, {
+      ...record(),
+      ruling: {
+        ...record().ruling,
+        proposedEdits: [edit('storage', '## Persistence\n\nUse the store through its port.'), edit('storage', '## Storage\n\nOther.'), edit('storage', '## A\n\n## B\n')],
+      },
+    })
+    const changes: string[] = []
+    ctx.on('architecture/changed', (root) => { changes.push(root) })
+
+    // The heading changes, so the accepted section is found by its new content, under its new anchor.
+    const applied = await ctx.architecture.applyProposedEdit({ cwd: repo, rulingId: RULING, index: 0, accept: true })
+    expect(applied).toMatchObject({ kind: 'written', path: 'design/arch.md', acceptance: { path: 'design/arch.md', anchor: 'persistence' } })
+    expect(await readFile(join(repo, 'design', 'arch.md'), 'utf8')).toBe('# Arch\n\n## Persistence\n\nUse the store through its port.\n')
+    const snapshot = await ctx.architecture.snapshot(repo)
+    expect(snapshot.rulings[0]?.appliedEdits).toEqual([0])
+    expect(snapshot.acceptances.map(entry => entry.anchor)).toEqual(['persistence'])
+    expect(changes.length).toBeGreaterThan(0)
+    const apply = (index: number, rulingId = RULING) => ctx.architecture.applyProposedEdit({ cwd: repo, rulingId, index, accept: false })
+    await expect(apply(0)).rejects.toThrow(/already applied/)
+
+    // The section the second edit read is gone, so it is refused and stays unapplied.
+    const refused = await ctx.architecture.applyProposedEdit({ cwd: repo, rulingId: RULING, index: 1, accept: false })
+    expect(refused).toEqual({ kind: 'refused', refusal: { kind: 'unknown-section', path: 'design/arch.md', anchor: 'storage' } })
+    expect((await ctx.architecture.snapshot(repo)).rulings[0]?.appliedEdits).toEqual([0])
+
+    await expect(apply(9)).rejects.toThrow(/has no proposed edit 9/)
+    await expect(apply(0, brandString<RulingId>('ruling-x'))).rejects.toThrow(/no Ruling ruling-x/)
+  })
+
+  it('applies without accepting, and accepts nothing when the written text is several sections', async () => {
+    const repo = await fixture()
+    const ctx = await boot()
+    const storage = (await ctx.architecture.rebuild(repo))?.sections.find(section => section.anchor === 'storage')
+    if (storage === undefined) throw new Error('storage missing')
+    const edit = (content: string) => ({ path: storage.path, anchor: 'storage', hash: storage.hash, content, rationale: 'r' })
+    await ctx.architecture.recordRuling(repo, { ...record(), ruling: { ...record().ruling, proposedEdits: [edit('## Storage\n\nPlain.')] } })
+    expect(await ctx.architecture.applyProposedEdit({ cwd: repo, rulingId: RULING, index: 0, accept: false })).toEqual({ kind: 'written', path: 'design/arch.md' })
+    expect((await ctx.architecture.snapshot(repo)).acceptances).toEqual([])
+
+    const again = (await ctx.architecture.rebuild(repo))?.sections.find(section => section.anchor === 'storage')
+    if (again === undefined) throw new Error('storage missing')
+    const second = brandString<RulingId>('ruling-2')
+    await ctx.architecture.recordRuling(repo, {
+      ...record(),
+      ruling: { ...record().ruling, id: second, proposedEdits: [{ ...edit('## A\n\nOne.\n\n## B\n\nTwo.'), hash: again.hash }] },
+    })
+    expect(await ctx.architecture.applyProposedEdit({ cwd: repo, rulingId: second, index: 0, accept: true }))
+      .toEqual({ kind: 'written', path: 'design/arch.md', acceptance: undefined })
+    expect((await ctx.architecture.snapshot(repo)).acceptances).toEqual([])
   })
 
   it('accepts an uncommitted section at its reviewed hash only', async () => {
@@ -282,7 +342,7 @@ describe('RecordStore', () => {
     await writeFile(join(directory, 'rulings', 'notes.txt'), 'ignored')
     await writeFile(join(directory, 'rulings', 'invalid.json'), JSON.stringify({ version: 2 }))
     await writeFile(join(directory, 'rulings', 'empty.json'), '[]')
-    const valid = { version: 1, ...record(), issuedAt: 1, status: 'issued' }
+    const valid = { version: 1, ...record(), issuedAt: 1, status: 'issued', appliedEdits: [] }
     await writeFile(join(directory, 'rulings', 'renamed.json'), JSON.stringify(valid))
     const appeal = { version: 1, id: 'appeal-1', rulingId: 'ruling-1', workerSession: 'w', reason: 'r', evidence: [], filedAt: 1, delivered: false }
     await writeFile(join(directory, 'appeals', 'other.json'), JSON.stringify(appeal))

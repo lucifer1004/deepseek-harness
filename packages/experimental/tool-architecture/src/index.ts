@@ -74,6 +74,18 @@ const CONSULT_OUTPUT = {
         },
       },
     },
+    proposedEdits: {
+      type: 'array',
+      required: true,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          section: { type: 'string', required: true },
+          rationale: { type: 'string', required: true },
+        },
+      },
+    },
   },
 } as const
 
@@ -85,7 +97,7 @@ type ConsultValue = InferValue<typeof CONSULT_OUTPUT>
  * @returns the value the model and PTC code receive.
  */
 export function consultValue(result: ConsultResult): ConsultValue {
-  if (result.kind !== 'ruling') return { status: result.kind, rulingId: result.id, constraints: [], unresolved: [] }
+  if (result.kind !== 'ruling') return { status: result.kind, rulingId: result.id, constraints: [], unresolved: [], proposedEdits: [] }
   const ruling: Ruling = result.ruling
   return {
     status: 'ruling',
@@ -99,6 +111,8 @@ export function consultValue(result: ConsultResult): ConsultValue {
       statement: point.statement,
       ...point.reason === undefined ? {} : { reason: point.reason },
     })),
+    // The proposed text is the user's to review; the worker learns which sections it would change and why.
+    proposedEdits: ruling.proposedEdits.map(edit => ({ section: `${edit.path}#${edit.anchor}`, rationale: edit.rationale })),
   }
 }
 
@@ -123,6 +137,11 @@ export function renderConsultation(value: ConsultValue): string {
   if (value.unresolved.length > 0) {
     lines.push('', 'Unresolved, not binding:')
     for (const point of value.unresolved) lines.push(`- ${point.statement}${point.reason === undefined ? '' : ` (${point.reason})`}`)
+  }
+  if (value.proposedEdits.length > 0) {
+    lines.push('', 'Proposed record changes, waiting for the user to review and apply:')
+    for (const edit of value.proposedEdits) lines.push(`- ${edit.section}: ${edit.rationale}`)
+    lines.push('Until the user applies one and it is committed on the main branch or accepted, the current text governs.')
   }
   return lines.join('\n')
 }

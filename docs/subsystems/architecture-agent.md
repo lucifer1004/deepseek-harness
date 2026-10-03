@@ -12,19 +12,19 @@ Architecture sources change only in the primary checkout: the primary git worktr
 
 ## Consultation and Rulings
 
-A worker's `ConsultRequest` runs an architect agent as a hidden child of the worker Session, on the configured architect model or, when none is set, on the worker's model. The architect may use only its configured tools and must call `submit_ruling`. The service turns the submission into a Ruling: a constraint binds only when every citation names an indexed section whose current content is committed on the main branch or accepted by the user. Other constraints become unresolved points with the reason. `ConsultResult` is a Ruling with its index revision, a timeout, or an ended run without a submission.
+A worker's `ConsultRequest` runs an architect agent as a hidden child of the worker Session, on the configured architect model or, when none is set, on the worker's model. The architect may use only its configured tools and must call `submit_ruling`. The service turns the submission into a Ruling: a constraint binds only when every citation names an indexed section whose current content is committed on the main branch or accepted by the user. Other constraints become unresolved points with the reason. A submission may also carry proposed edits, each replacing one indexed section read at a stated content hash. The service validates each against the edit rule and the current index and drops an invalid one with its reason as an unresolved point; it writes none. A proposed edit binds no worker and makes nothing citable. A consultation never changes the record: the user authorizes every change, in an Architecture Session or by applying a proposed edit in the dashboard. `ConsultResult` is a Ruling with its index revision, a timeout, or an ended run without a submission.
 
-After the worker's tool result is committed, the tool package writes a `RulingRecord` under `.architecture/rulings/`. The record copies the Ruling, both Session ids, the index revision, and a status. The worker's log remains the authority for what the worker received; the record is a dashboard copy.
+After the worker's tool result is committed, the tool package writes a `RulingRecord` under `.architecture/rulings/`. The record copies the Ruling with its proposed edits, both Session ids, the index revision, a status, and which proposed edits the user applied. The worker's log remains the authority for what the worker received; the record is a dashboard copy.
 
 ## Appeals and acceptance
 
 A worker that disagrees with a constraint calls `appeal_ruling` with a reason and evidence. The service writes an `AppealRecord` under `.architecture/appeals/` and marks the Ruling appealed; the Ruling stays binding. The user decides in the dashboard. An `Adjudication` upholds the Ruling, overturns it, or grants an exception limited to a stated scope. The service steers the decision into the worker Session as an `architecture` user message. When that Session's agent is not live, the decision is delivered when the agent is next created.
 
-An `Acceptance` records one section at the exact content hash the user reviewed. Accepted sections are citable before they are committed; any later change to the section removes that status.
+An `Acceptance` records one section at the exact content hash the user reviewed. Accepted sections are citable before they are committed; any later change to the section removes that status. Applying a proposed edit with acceptance records an `Acceptance` of the section the write produced.
 
 ## Dashboard
 
-The dashboard is a main panel with a sidebar entry. It follows one Workspace through the `architecture` Remote `follow` stream, which yields an `ArchitectureSnapshot` after every `architecture/changed` event for that repository. Its views show the index with each source's git status, Rulings with their status and whether a cited section changed, appeals with the decision form, files under the local directory with their git status, and settings. The Settings view declares the repository's main branch through the `setMainBranch` Remote method, from the primary checkout, choosing among the repository's local branches or bookmarks, and edits the profile's architect model, the live `architectProvider`, `architectModel`, and `architectReasoningEffort` fields of the service configuration that each consultation reads. Discuss opens a new Session on the `architect` preset in the selected Workspace.
+The dashboard is a main panel with a sidebar entry. It follows one Workspace through the `architecture` Remote `follow` stream, which yields an `ArchitectureSnapshot` after every `architecture/changed` event for that repository. Its views show the index with each source's git status, Rulings with their status, whether a cited section changed, and their proposed edits against the current sections, appeals with the decision form, files under the local directory with their git status, and settings. The Settings view declares the repository's main branch through the `setMainBranch` Remote method, from the primary checkout, choosing among the repository's local branches or bookmarks, and edits the profile's architect model, the live `architectProvider`, `architectModel`, and `architectReasoningEffort` fields of the service configuration that each consultation reads. The Consultations view applies a proposed edit through the `applyProposedEdit` Remote method, from the primary checkout under the edit rule, and optionally accepts the resulting section; a section that changed since the consultation is refused. Discuss opens a new Session on the `architect` preset in the selected Workspace.
 
 ## Commit and CI check
 
@@ -135,7 +135,7 @@ async consult(request: ConsultRequest): Promise<ConsultResult>
  * @param cwd - the worker Session's directory.
  * @param record - Ruling, Sessions, and index revision; status starts at `issued`.
  */
-async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status'>): Promise<void>
+async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status' | 'appliedEdits'>): Promise<void>
 
 /**
  * File a worker's appeal against a recorded Ruling. The Ruling stays binding
@@ -163,6 +163,15 @@ async adjudicate(cwd: string, appealId: AppealId, adjudication: Adjudication): P
  * @param agent - the live agent.
  */
 async deliverPending(agent: Agent): Promise<void>
+
+/**
+ * Apply one proposed edit of a recorded Ruling from the primary checkout, under the edit rule. The write is refused
+ * when the section changed since the architect read it. With `accept`, the section the write produced is accepted.
+ * @param request - repository directory, Ruling, the edit's index in `ruling.proposedEdits`, and whether to accept.
+ * @returns the written path, or the refusal; an accepted section is returned with the written result.
+ * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied.
+ */
+async applyProposedEdit(request: ApplyProposedEditRequest): Promise<ApplyProposedEditResult>
 
 /**
  * Accept a section's current content so Rulings may cite it before it is
@@ -250,7 +259,16 @@ The `architecture` Remote namespace over `ctx.architecture`, addressed by Worksp
 @Remote async accept(request: ArchitectureAcceptRequest): Promise<Acceptance>
 
 /**
- * Declare the repository's main branch in its manifest, under the main-branch edit rule.
+ * Apply one proposed edit of a recorded Ruling from the primary checkout, and optionally accept the written section.
+ * @param request - Workspace, Ruling, edit index, and whether to accept.
+ * @param signal - Client cancellation.
+ * @returns the written path, and the acceptance when one was recorded.
+ * @throws `architecture/failed` naming the refusal, an unknown Ruling or edit, or an edit already applied.
+ */
+@Remote async applyProposedEdit( request: ArchitectureApplyEditRequest, signal: AbortSignal, ): Promise<{ readonly path: string; readonly acceptance?: Acceptance | undefined }>
+
+/**
+ * Declare the repository's main branch in its manifest, from the primary checkout.
  * @param request - Workspace and branch.
  * @param signal - Client cancellation.
  * @returns the written manifest path.

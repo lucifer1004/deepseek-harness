@@ -111,6 +111,11 @@ function registerUi(ctx: Context): void {
       const result = await ctx.remote.architecture.adjudicate({ workspaceId, appealId, adjudication })
       return result.ok
     },
+    applyProposedEdit: async (workspaceId, rulingId, index, accept) => {
+      const result = await ctx.remote.architecture.applyProposedEdit({ workspaceId, rulingId, index, accept })
+      if (result.ok) return undefined
+      return result.error.code === 'architecture/failed' ? result.error.details.reason : t('settings.mainBranch.unreachable')
+    },
     setMainBranch: async (workspaceId, branch) => {
       const result = await ctx.remote.architecture.setMainBranch({ workspaceId, branch })
       if (result.ok) return undefined

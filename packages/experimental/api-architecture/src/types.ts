@@ -1,5 +1,5 @@
 /** Client-safe request and error vocabulary of the `architecture` Remote namespace. */
-import type { Adjudication, AppealId } from '@deepseek-ai/dsh-experimental-architecture/types'
+import type { Adjudication, AppealId, RulingId } from '@deepseek-ai/dsh-experimental-architecture/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 
 export type {
@@ -14,6 +14,7 @@ export type {
   GitFileStatus,
   IndexedSection,
   LocalEntry,
+  ProposedEdit,
   Ruling,
   RulingId,
   RulingRecord,
@@ -57,6 +58,16 @@ export interface ArchitectureMainBranchRequest {
   readonly workspaceId: WorkspaceId
   /** Branch or jj bookmark to declare. */
   readonly branch: string
+}
+
+/** Apply one proposed edit of a recorded Ruling. */
+export interface ArchitectureApplyEditRequest {
+  readonly workspaceId: WorkspaceId
+  readonly rulingId: RulingId
+  /** Index into the Ruling's `proposedEdits`. */
+  readonly index: number
+  /** Whether to accept the section the write produces. */
+  readonly accept: boolean
 }
 
 /** Decide one pending appeal. */

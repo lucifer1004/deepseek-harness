@@ -8,12 +8,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { describeRefusal } from '@deepseek-ai/dsh-experimental-architecture'
-import type { Acceptance, AppealRecord, ArchitectureEditResult, ArchitectureSnapshot } from '@deepseek-ai/dsh-experimental-architecture/types'
+import type { Acceptance, AppealRecord, ApplyProposedEditResult, ArchitectureEditResult, ArchitectureSnapshot } from '@deepseek-ai/dsh-experimental-architecture/types'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
   ArchitectureAcceptRequest,
   ArchitectureAdjudicateRequest,
+  ArchitectureApplyEditRequest,
   ArchitectureMainBranchRequest,
   ArchitectureSectionRequest,
   ArchitectureSectionValue,
@@ -156,7 +157,33 @@ export default class ArchitectureController extends TypertRemoteService {
   }
 
   /**
-   * Declare the repository's main branch in its manifest, under the main-branch edit rule.
+   * Apply one proposed edit of a recorded Ruling from the primary checkout, and optionally accept the written section.
+   * @param request - Workspace, Ruling, edit index, and whether to accept.
+   * @param signal - Client cancellation.
+   * @returns the written path, and the acceptance when one was recorded.
+   * @throws `architecture/failed` naming the refusal, an unknown Ruling or edit, or an edit already applied.
+   */
+  @Remote
+  async applyProposedEdit(
+    request: ArchitectureApplyEditRequest,
+    signal: AbortSignal,
+  ): Promise<{ readonly path: string; readonly acceptance?: Acceptance | undefined }> {
+    const path = this.workspacePath(request.workspaceId)
+    let result: ApplyProposedEditResult
+    try {
+      const { rulingId, index, accept } = request
+      result = await this.ctx.architecture.applyProposedEdit({ cwd: path, rulingId, index, accept, signal })
+    } catch (error) {
+      signal.throwIfAborted()
+      throw failed(error)
+    }
+    signal.throwIfAborted()
+    if (result.kind === 'refused') throw failed(new Error(describeRefusal(result.refusal)))
+    return result.acceptance === undefined ? { path: result.path } : { path: result.path, acceptance: result.acceptance }
+  }
+
+  /**
+   * Declare the repository's main branch in its manifest, from the primary checkout.
    * @param request - Workspace and branch.
    * @param signal - Client cancellation.
    * @returns the written manifest path.

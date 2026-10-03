@@ -45,21 +45,24 @@ function snapshot(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSn
         summary: 'Use the store.',
         constraints: [{ statement: 'Persist through the store.', citations: [{ path: 'design/arch.md', anchor: 'storage', hash: HASH }] as never }],
         unresolved: [{ statement: 'Use YAML.', reason: 'no citation to an architecture section' }, { statement: 'Caching?' }],
+        proposedEdits: [],
       },
       workerSession: 'worker' as never,
       architectSession: 'architect' as never,
       revision: 'r',
       issuedAt: 0,
       status: 'appealed',
+      appliedEdits: [],
       stale: true,
     }, {
       version: 1,
-      ruling: { id: 'ruling-2' as RulingId, question: 'Second?', scope: [], summary: '', constraints: [], unresolved: [] },
+      ruling: { id: 'ruling-2' as RulingId, question: 'Second?', scope: [], summary: '', constraints: [], unresolved: [], proposedEdits: [] },
       workerSession: 'worker' as never,
       architectSession: 'architect' as never,
       revision: 'r',
       issuedAt: Date.now(),
       status: 'issued',
+      appliedEdits: [],
       stale: false,
     }],
     appeals: [{
@@ -150,6 +153,7 @@ function fixture(
     accept: vi.fn(async () => true),
     adjudicate: vi.fn(async () => true),
     setMainBranch: vi.fn<ArchitecturePageProps['setMainBranch']>(async () => undefined),
+    applyProposedEdit: vi.fn<ArchitecturePageProps['applyProposedEdit']>(async () => undefined),
     architectModel,
     t: makeTranslate(zh),
   }
@@ -242,6 +246,65 @@ describe('ArchitecturePage', () => {
     // Times use the sidebar's relative form: an old Ruling in years ago, a fresh one as now.
     expect(screen.getByText(/ruling-1 · \d+年前 · 会话/)).toBeTruthy()
     expect(screen.getByText(/ruling-2 · 刚刚 · 会话/)).toBeTruthy()
+  })
+
+  it('shows proposed edits against the current section and applies them, with or without acceptance', async () => {
+    const base = snapshot()
+    const first = base.rulings[0]
+    if (first === undefined) throw new Error('fixture has no Ruling')
+    const proposal = (anchor: string, hash: string, rationale: string) => ({ path: 'design/arch.md', anchor, hash, content: `## ${anchor}\n\nRevised.`, rationale }) as never
+    const withEdits = {
+      ...base,
+      rulings: [{
+        ...first,
+        ruling: { ...first.ruling, proposedEdits: [proposal('storage', HASH, 'name the port'), proposal('arch', OTHER, 'stale one'), proposal('gone', HASH, 'gone one')] },
+      }],
+      index: { ...base.index, sections: [...base.index.sections, { path: 'design/arch.md', anchor: 'gone', title: 'Gone', level: 2, line: 6, endLine: 7, hash: HASH }] as never },
+    }
+    const { props, dashboard } = fixture({ snapshot: withEdits })
+    // A long current section collapses the middle of the diff.
+    const long = Array.from({ length: 30 }, (_, line) => `Line ${String(line)}.`).join('\n')
+    props.readSection.mockImplementation(async (_ws, path, anchor) => anchor === 'gone' ? undefined : { path, anchor, hash: HASH, text: `## ${anchor}\n\n${long}` })
+    tab(zh['tab.consultations'])
+    expect(screen.getByText(zh['ruling.proposedEdits'])).toBeTruthy()
+    expect(screen.getByText('name the port')).toBeTruthy()
+    // The section the architect read changed, so the proposal cannot be applied.
+    expect(screen.getByText(zh['ruling.proposedEdit.changed'])).toBeTruthy()
+    expect(screen.getByText(zh['ruling.proposedEdit.changedHint'])).toBeTruthy()
+    expect(await screen.findByText(zh['section.failed'])).toBeTruthy()
+    expect(await screen.findByText(/Revised\./)).toBeTruthy()
+    expect(props.readSection).toHaveBeenCalledWith(WS, 'design/arch.md', 'storage')
+    fireEvent.click(screen.getByRole('button', { name: /展开其余 \d+ 行差异/ }))
+    expect(screen.getByRole('button', { name: zh['diff.collapse'] })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: zh['ruling.proposedEdit.applyAccept'] }))
+    await waitFor(() => { expect(props.applyProposedEdit).toHaveBeenCalledWith(WS, 'ruling-1', 0, true) })
+    props.applyProposedEdit.mockResolvedValueOnce('design/arch.md#storage changed since it was read')
+    fireEvent.click(screen.getByRole('button', { name: zh['ruling.proposedEdit.apply'] }))
+    expect(await screen.findByText('未能应用：design/arch.md#storage changed since it was read')).toBeTruthy()
+    expect(props.applyProposedEdit).toHaveBeenLastCalledWith(WS, 'ruling-1', 0, false)
+
+    // Once applied, the proposal shows its state and no longer offers the actions.
+    const applied = { ...withEdits, rulings: [{ ...withEdits.rulings[0], appliedEdits: [0] }] as never }
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: applied })
+    expect(await screen.findByText(zh['ruling.proposedEdit.applied'])).toBeTruthy()
+    await waitFor(() => { expect(screen.queryByRole('button', { name: zh['ruling.proposedEdit.apply'] })).toBeNull() })
+  })
+
+  it('drops a section read that finishes after its proposal left the screen', async () => {
+    const base = snapshot()
+    const first = base.rulings[0]
+    if (first === undefined) throw new Error('fixture has no Ruling')
+    const edit = { path: 'design/arch.md', anchor: 'storage', hash: HASH, content: '## Storage\n\nRevised.', rationale: 'late' } as never
+    const { props } = fixture({ snapshot: { ...base, rulings: [{ ...first, ruling: { ...first.ruling, proposedEdits: [edit] } }] } })
+    let finish: (value: undefined) => void = () => undefined
+    props.readSection.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    tab(zh['tab.consultations'])
+    await waitFor(() => { expect(props.readSection).toHaveBeenCalled() })
+    tab(zh['tab.architecture'])
+    finish(undefined)
+    await Promise.resolve()
+    expect(screen.queryByText(zh['section.failed'])).toBeNull()
   })
 
   it('decides a pending appeal and shows decided appeals', async () => {

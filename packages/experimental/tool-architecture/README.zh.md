@@ -50,7 +50,7 @@ kind: "package-reference"
 
 ### 成功与失败的表现
 
-`consult_architect` 返回 `status: 'ruling'`，附带摘要、带已校验引用的约束与未决点；或返回不含约束的 `status: 'timeout'` 或 `'no-submission'`。空问题、没有 agent 的调用、没有工作目录的会话，以及没有 manifest 的仓库都会使调用失败。`appeal_ruling` 返回申诉 id；理由为空、Ruling 没有记录或 Ruling 发给了其他会话时失败。对没有 manifest 的工作区，`architecture_index` 返回 `hasManifest: false`，并渲染为 `COLD_START_GUIDANCE`：调查代码与现有文档，提出一份声明 checkout 当前分支的 manifest 和一份精简的首个文档，在用户同意后写入它们。该值的 `checkout` 给出版本控制系统、该 checkout 是否为主 checkout，以及它当前所在的分支或书签，渲染时列在指引之后。位于 git 或 jj checkout 之外的会话既看不到 worker 工具，也看不到 worker 指引。引用不是 `path#anchor` 或不对应任何已索引章节时，`architecture_read` 失败。服务拒绝编辑时（包括 `expectedHash` 已过期），`architecture_edit` 以 `architecture_edit refused: <reason>` 失败。
+`consult_architect` 返回 `status: 'ruling'`，附带摘要、带已校验引用的约束、未决点，以及列出裁定提议改写的每个章节及其理由的 `proposedEdits`；或返回不含约束的 `status: 'timeout'` 或 `'no-submission'`。空问题、没有 agent 的调用、没有工作目录的会话，以及没有 manifest 的仓库都会使调用失败。`appeal_ruling` 返回申诉 id；理由为空、Ruling 没有记录或 Ruling 发给了其他会话时失败。对没有 manifest 的工作区，`architecture_index` 返回 `hasManifest: false`，并渲染为 `COLD_START_GUIDANCE`：调查代码与现有文档，提出一份声明 checkout 当前分支的 manifest 和一份精简的首个文档，在用户同意后写入它们。该值的 `checkout` 给出版本控制系统、该 checkout 是否为主 checkout，以及它当前所在的分支或书签，渲染时列在指引之后。位于 git 或 jj checkout 之外的会话既看不到 worker 工具，也看不到 worker 指引。引用不是 `path#anchor` 或不对应任何已索引章节时，`architecture_read` 失败。服务拒绝编辑时（包括 `expectedHash` 已过期），`architecture_edit` 以 `architecture_edit refused: <reason>` 失败。
 
 -----
 
@@ -91,7 +91,7 @@ worker 看到 `consult_architect(question, scope?)` 和一段导出为 `WORKER_P
 
 #### Token 影响
 
-worker 指引为每个 worker 请求增加约 170 token，`consult_architect` 与 `appeal_ruling` schema 约 230 token。一次申诉结果约 40 token。一份 Ruling 结果约 20 token 加上其陈述与引用。架构师指引为每个架构师请求增加约 200 token，三个 schema 约 400 token；在 dsh 仓库上，`architecture_index` 列出约 2,400 个章节。
+worker 指引为每个 worker 请求增加约 170 token，`consult_architect` 与 `appeal_ruling` schema 约 230 token。一次申诉结果约 40 token。一份 Ruling 结果约 20 token 加上其陈述与引用；有修改提议时再加约 40 token 及每条提议的章节与理由，提议文本本身不进入 worker 的上下文。架构师指引为每个架构师请求增加约 200 token，三个 schema 约 400 token；在 dsh 仓库上，`architecture_index` 列出约 2,400 个章节。
 
 #### KV Cache 影响
 

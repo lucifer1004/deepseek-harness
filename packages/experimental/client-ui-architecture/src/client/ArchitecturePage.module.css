@@ -229,6 +229,24 @@
   margin: 4px 0;
 }
 
+.proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+}
+
 .cardHeading {
   display: flex;
   flex-wrap: wrap;

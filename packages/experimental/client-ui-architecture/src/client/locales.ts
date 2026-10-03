@@ -116,6 +116,17 @@ export const zh = {
   'markdown.wrap': '自动换行',
   'markdown.unwrap': '取消自动换行',
   'markdown.footnotes': '脚注',
+  'diff.collapse': '收起差异',
+  'diff.expandAria': '展开其余 {count} 行差异',
+  'diff.expand': '… 其余 {count} 行',
+  'ruling.proposedEdits': '修改提议',
+  'ruling.proposedEdits.hint': '架构师提议改写这些章节。应用后它们出现在工作副本中，提交到主分支或被接受后才约束 worker。',
+  'ruling.proposedEdit.apply': '仅应用',
+  'ruling.proposedEdit.applyAccept': '应用并接受',
+  'ruling.proposedEdit.applied': '已应用',
+  'ruling.proposedEdit.changed': '章节已变化',
+  'ruling.proposedEdit.changedHint': '架构师读取之后此章节已被修改，此提议不能再应用。请重新咨询。',
+  'ruling.proposedEdit.failed': '未能应用：{message}',
 } as const
 
 /** Key domain of the `architecture` namespace. */
@@ -234,4 +245,15 @@ export const en: Record<ArchitectureKey, string> = {
   'markdown.wrap': 'Wrap lines',
   'markdown.unwrap': 'Unwrap lines',
   'markdown.footnotes': 'Footnotes',
+  'diff.collapse': 'Collapse diff',
+  'diff.expandAria': 'Expand {count} more diff lines',
+  'diff.expand': '… {count} more lines',
+  'ruling.proposedEdits': 'Proposed edits',
+  'ruling.proposedEdits.hint': 'The architect proposes rewriting these sections. Applied, they appear in the working copy; they bind workers once committed on the main branch or accepted.',
+  'ruling.proposedEdit.apply': 'Apply only',
+  'ruling.proposedEdit.applyAccept': 'Apply and accept',
+  'ruling.proposedEdit.applied': 'Applied',
+  'ruling.proposedEdit.changed': 'Section changed',
+  'ruling.proposedEdit.changedHint': 'The section changed after the architect read it, so this proposal can no longer be applied. Consult again.',
+  'ruling.proposedEdit.failed': 'Not applied: {message}',
 }

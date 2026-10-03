@@ -110,6 +110,28 @@ export type EditRefusal =
   | { readonly kind: 'unknown-section'; readonly path: string; readonly anchor: string }
   | { readonly kind: 'stale-section'; readonly path: string; readonly anchor: string; readonly hash: SectionHash }
 
+/** One proposed edit of a recorded Ruling, for the user to apply. */
+export interface ApplyProposedEditRequest {
+  /** Any directory inside the repository. */
+  readonly cwd: string
+  /** The recorded Ruling that carries the edit. */
+  readonly rulingId: RulingId
+  /** Index into the Ruling's `proposedEdits`. */
+  readonly index: number
+  /** Whether to accept the section the write produces, so Rulings may cite it before it is committed. */
+  readonly accept: boolean
+  /** Cancels the write and the rebuild. */
+  readonly signal?: AbortSignal | undefined
+}
+
+/**
+ * Outcome of applying one proposed edit. `acceptance` is present when acceptance was requested: the recorded
+ * acceptance, or undefined when the written content is not one indexed section.
+ */
+export type ApplyProposedEditResult =
+  | (Extract<ArchitectureEditResult, { kind: 'written' }> & { readonly acceptance?: Acceptance | undefined })
+  | Extract<ArchitectureEditResult, { kind: 'refused' }>
+
 /** The version control of one checkout and its repository's local branches. */
 export interface CheckoutBranches {
   readonly vcs: VcsKind
@@ -177,6 +199,23 @@ export interface UnresolvedPoint {
   readonly reason?: string | undefined
 }
 
+/**
+ * A section replacement the architect proposes. It binds no worker and makes nothing citable; it changes the record
+ * only when the user applies it.
+ */
+export interface ProposedEdit {
+  /** Section to replace. */
+  readonly path: SourcePath
+  /** Anchor of the section within the file. */
+  readonly anchor: string
+  /** Content hash of the section the architect read; applying is refused once the section changed. */
+  readonly hash: SectionHash
+  /** New text of the section, from its heading through its last line. */
+  readonly content: string
+  /** Why the architect proposes the change. */
+  readonly rationale: string
+}
+
 /** An architect's answer to one consultation after host validation. */
 export interface Ruling {
   /** Identity for later appeals. */
@@ -189,8 +228,10 @@ export interface Ruling {
   readonly summary: string
   /** Binding constraints whose every citation verified. */
   readonly constraints: readonly Constraint[]
-  /** Points without citable support, including demoted constraints. */
+  /** Points without citable support, including demoted constraints and invalid proposed edits. */
   readonly unresolved: readonly UnresolvedPoint[]
+  /** Section replacements that validated against the index the Ruling was issued on. */
+  readonly proposedEdits: readonly ProposedEdit[]
 }
 
 /** A constraint as the architect submitted it, before verification. */
@@ -199,6 +240,18 @@ export interface ProposedConstraint {
   readonly statement: string
   /** Sections the architect cites as `path#anchor`. */
   readonly cites: readonly string[]
+}
+
+/** A section replacement as the architect submitted it, before validation. */
+export interface SubmittedEdit {
+  /** Section to replace as `path#anchor`. */
+  readonly cite: string
+  /** Content hash of the section the architect read. */
+  readonly hash: string
+  /** New text of the section, from its heading through its last line. */
+  readonly content: string
+  /** Why the architect proposes the change. */
+  readonly rationale: string
 }
 
 /** Why one citation failed verification. */
@@ -239,6 +292,8 @@ export interface RulingRecord {
   readonly issuedAt: number
   /** Current status. */
   readonly status: RulingStatus
+  /** Indexes into `ruling.proposedEdits` the user applied, in application order. */
+  readonly appliedEdits: readonly number[]
 }
 
 /** How the user resolved an appeal. */

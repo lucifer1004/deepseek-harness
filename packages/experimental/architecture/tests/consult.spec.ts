@@ -132,6 +132,29 @@ describe('ArchitectureService.consult', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
+  it('keeps proposed edits of indexed sections at their current hash, and demotes the rest', async () => {
+    const probe = await boot([])
+    const storage = (await probe.ctx.architecture.rebuild(probe.repo))?.sections.find(section => section.anchor === 'storage')
+    if (storage === undefined) throw new Error('storage missing')
+    const edits = [
+      { cite: 'design/arch.md#storage', hash: storage.hash, content: '## Storage\n\nThrough the port.', rationale: 'name the port' },
+      { cite: 'design/arch.md#storage', hash: '0'.repeat(64), content: '## Storage\n\nX.', rationale: 'stale' },
+      { cite: 'design/arch.md#missing', hash: storage.hash, content: '## Missing', rationale: 'missing' },
+      { cite: 'design/arch.md', hash: storage.hash, content: '## X', rationale: 'malformed' },
+      { cite: 'design/arch.md#storage', hash: storage.hash, content: '  ', rationale: 'empty' },
+    ]
+    const { ctx, worker } = await boot([toolCallResponse('s1', SUBMIT_RULING_TOOL, { ...submission, constraints: [], proposedEdits: edits }), textResponse('done')])
+    const result = await ctx.architecture.consult({ worker, question: 'q', scope: [], signal: new AbortController().signal })
+    if (result.kind !== 'ruling') throw new Error(result.kind)
+    expect(result.ruling.proposedEdits).toEqual([{ path: 'design/arch.md', anchor: 'storage', hash: storage.hash, content: '## Storage\n\nThrough the port.', rationale: 'name the port' }])
+    expect(result.ruling.unresolved.slice(1).map(point => [point.statement, point.reason])).toEqual([
+      ['Proposed edit of design/arch.md#storage: stale', `design/arch.md#storage changed since it was read; its current hash is ${storage.hash}`],
+      ['Proposed edit of design/arch.md#missing: missing', 'design/arch.md#missing is not an indexed section'],
+      ['Proposed edit of design/arch.md: malformed', '"design/arch.md" is not a path#anchor reference'],
+      ['Proposed edit of design/arch.md#storage: empty', 'the proposed content is empty'],
+    ])
+  })
+
   it('runs the architect on the configured model instead of the worker model', async () => {
     const { ctx, adapter, worker } = await boot([], { architect: { architectProvider: 'arch', architectModel: 'big', architectReasoningEffort: 'high' } })
     const architect = new MockAdapter([toolCallResponse('s1', SUBMIT_RULING_TOOL, submission)], {

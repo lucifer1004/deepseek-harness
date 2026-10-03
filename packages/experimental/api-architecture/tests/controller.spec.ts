@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import ArchitectureService from '@deepseek-ai/dsh-experimental-architecture'
-import type { AppealId, RulingId } from '@deepseek-ai/dsh-experimental-architecture'
+import type { AppealId, RulingId, SectionHash, SourcePath } from '@deepseek-ai/dsh-experimental-architecture'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -139,6 +139,44 @@ describe('architecture Remote namespace', () => {
     await expect(api.section({ workspaceId: WORKSPACE, path: 'design/arch.md', anchor: 'storage' }, controller.signal)).rejects.toThrow('client left')
   })
 
+  it('applies a proposed edit with its acceptance, and reports a refusal or an unknown Ruling', async () => {
+    const { ctx, api, repo } = await boot()
+    const signal = new AbortController().signal
+    const storage = await api.section({ workspaceId: WORKSPACE, path: 'design/arch.md', anchor: 'storage' }, signal)
+    const edit = (content: string, hash: string) => ({ path: brandString<SourcePath>('design/arch.md'), anchor: 'storage', hash: brandString<SectionHash>(hash), content, rationale: 'r' })
+    await ctx.architecture.recordRuling(repo, {
+      ruling: {
+        id: brandString<RulingId>('ruling-1'), question: 'q', scope: [], summary: 's', constraints: [], unresolved: [],
+        proposedEdits: [edit('## Storage\n\nThrough the port.', storage.hash), edit('## Storage\n\nX.', 'f'.repeat(64))],
+      },
+      workerSession: brandString<SessionId>('w'),
+      architectSession: brandString<SessionId>('a'),
+      revision: 'r',
+    })
+    const applied = await api.applyProposedEdit({ workspaceId: WORKSPACE, rulingId: brandString<RulingId>('ruling-1'), index: 0, accept: true }, signal)
+    expect(applied).toMatchObject({ path: 'design/arch.md', acceptance: { anchor: 'storage' } })
+    expect(await readFile(join(repo, 'design', 'arch.md'), 'utf8')).toBe('# Arch\n\n## Storage\n\nThrough the port.\n')
+    // Without acceptance the result carries only the path.
+    const now = (await ctx.architecture.rebuild(repo))?.sections.find(section => section.anchor === 'storage')
+    if (now === undefined) throw new Error('storage missing')
+    await ctx.architecture.recordRuling(repo, {
+      ruling: { id: brandString<RulingId>('ruling-2'), question: 'q', scope: [], summary: 's', constraints: [], unresolved: [], proposedEdits: [edit('## Storage\n\nAgain.', now.hash)] },
+      workerSession: brandString<SessionId>('w'),
+      architectSession: brandString<SessionId>('a'),
+      revision: 'r',
+    })
+    expect(await api.applyProposedEdit({ workspaceId: WORKSPACE, rulingId: brandString<RulingId>('ruling-2'), index: 0, accept: false }, signal))
+      .toEqual({ path: 'design/arch.md' })
+
+    const stale = await remoteError(api.applyProposedEdit({ workspaceId: WORKSPACE, rulingId: brandString<RulingId>('ruling-1'), index: 1, accept: false }, signal))
+    expect(stale.message).toMatch(/^design\/arch\.md#storage changed since it was read/)
+    expect((await remoteError(api.applyProposedEdit({ workspaceId: WORKSPACE, rulingId: brandString<RulingId>('nope'), index: 0, accept: false }, signal))).message)
+      .toMatch(/no Ruling nope/)
+    const left = new AbortController()
+    left.abort(new Error('client left'))
+    await expect(api.applyProposedEdit({ workspaceId: WORKSPACE, rulingId: brandString<RulingId>('nope'), index: 0, accept: false }, left.signal)).rejects.toThrow('client left')
+  })
+
   it('follows changes of its repository, coalesces bursts, and ignores other repositories', async () => {
     const { ctx, api, repo } = await boot()
     const controller = new AbortController()
@@ -147,7 +185,7 @@ describe('architecture Remote namespace', () => {
     expect(first.done).toBe(false)
 
     const record = {
-      ruling: { id: brandString<RulingId>('ruling-1'), question: 'q', scope: [], summary: 's', constraints: [], unresolved: [] },
+      ruling: { id: brandString<RulingId>('ruling-1'), question: 'q', scope: [], summary: 's', constraints: [], unresolved: [], proposedEdits: [] },
       workerSession: brandString<SessionId>('w'),
       architectSession: brandString<SessionId>('a'),
       revision: 'r',
