@@ -127,9 +127,31 @@
   min-width: 0;
 }
 
-.source {
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.search {
+  flex: 1;
+  min-width: 200px;
+}
+
+.directory {
   padding-block: 4px;
   border-bottom: 1px solid var(--dsw-alias-border-l3);
+}
+
+/* Sources indent under their directory. */
+.directorySources {
+  padding-inline-start: 20px;
+}
+
+.source {
+  padding-block: 2px;
 }
 
 /* The source path, its git status, and its section count on the disclosure row. */

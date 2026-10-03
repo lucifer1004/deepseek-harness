@@ -2,8 +2,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import {
   Button,
-  DisclosureRow,
-  FileTypeIcon,
   IconChevronDownOutlineRegular,
   IconLoadingOutlineRegular,
   Input,
@@ -37,6 +35,7 @@ import type { DashboardState } from './dashboard-source.ts'
 import { Fold } from './Fold.tsx'
 import { ProposedEdits } from './ProposedEdits.tsx'
 import { SettingsView } from './SettingsView.tsx'
+import { SourceList, STATUS_TONE } from './SourceList.tsx'
 import css from './ArchitecturePage.module.css'
 
 /** One Workspace the user may pick. */
@@ -74,13 +73,6 @@ export type ArchitecturePageProps = PropsRuntime<'main'> & InjectFace<Architectu
 
 type Translate = ArchitecturePageProps['t']
 type View = 'architecture' | 'consultations' | 'appeals' | 'local' | 'settings'
-
-const STATUS_TONE: Readonly<Record<GitFileStatus, TagTone>> = {
-  committed: 'quiet',
-  modified: 'warning',
-  untracked: 'info',
-  ignored: 'neutral',
-}
 
 const DECISIONS = ['uphold', 'overturn', 'exception'] as const
 
@@ -281,23 +273,10 @@ type WorkspaceViewProps = ArchitecturePageProps & { readonly workspaceId: Worksp
 function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceViewProps): ReactNode {
   const [open, setOpen] = useState<OpenSection | null>(null)
   const [acceptFailed, setAcceptFailed] = useState(false)
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
-  const toggle = (path: string): void => {
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (!next.delete(path)) next.add(path)
-      return next
-    })
-  }
   const accepted = useMemo(
     () => new Set(snapshot.acceptances.map(entry => `${entry.path}#${entry.anchor}@${entry.hash}`)),
     [snapshot.acceptances],
   )
-  const bySource = useMemo(() => {
-    const groups = new Map<string, IndexedSection[]>()
-    for (const section of snapshot.index.sections) groups.set(section.path, [...groups.get(section.path) ?? [], section])
-    return groups
-  }, [snapshot.index.sections])
   if (!snapshot.hasManifest) return <p className={css.empty}>{t('noManifest', { manifest: snapshot.manifestPath })}</p>
   const show = (section: IndexedSection): void => {
     const cite = `${section.path}#${section.anchor}`
@@ -314,47 +293,7 @@ function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceV
         {snapshot.index.diagnostics.length > 0 && (
           <p className={css.notice}>{t('diagnostics', { count: String(snapshot.index.diagnostics.length) })}</p>
         )}
-        {[...bySource].map(([path, sections]) => {
-          const status = sourceStatus(snapshot, path)
-          return (
-            <DisclosureRow
-              key={path}
-              className={css.source}
-              contentLayoutClassName={css.sourceHeading}
-              icon={<FileTypeIcon path={path} size={16} />}
-              title={path}
-              open={expanded.has(path)}
-              expandable
-              expandOnRowClick
-              keepContentWhenOpen
-              onToggle={() => { toggle(path) }}
-              collapsedContent={(
-                <>
-                  <Tag tone={STATUS_TONE[status]}>{t(`status.${status}`)}</Tag>
-                  <span className={css.meta}>{t('source.sections', { count: String(sections.length) })}</span>
-                </>
-              )}
-            >
-              <ul className={css.sections}>
-                {sections.map(section => (
-                  <li key={section.anchor}>
-                    <button
-                      type="button"
-                      className={css.sectionButton}
-                      aria-label={t('section.open', { cite: `${section.path}#${section.anchor}` })}
-                      aria-pressed={open?.cite === `${section.path}#${section.anchor}`}
-                      onClick={() => { show(section) }}
-                      style={{ paddingInlineStart: `${String((section.level - 1) * 12 + 8)}px` }}
-                    >
-                      {section.title}
-                    </button>
-                    {accepted.has(`${section.path}#${section.anchor}@${section.hash}`) && <Tag tone="success">{t('status.accepted')}</Tag>}
-                  </li>
-                ))}
-              </ul>
-            </DisclosureRow>
-          )
-        })}
+        <SourceList snapshot={snapshot} openCite={open?.cite} show={show} t={t} />
       </div>
       {open !== null && (
         <article className={css.reader} aria-label={open.cite}>

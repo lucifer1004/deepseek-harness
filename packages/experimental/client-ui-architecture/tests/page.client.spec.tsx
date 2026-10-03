@@ -109,8 +109,10 @@ function undeclared(overrides: Partial<ArchitectureSnapshot> = {}): Architecture
 }
 
 /** Expand one source's disclosure row so its sections are listed. */
+/** Toggle the source row of `path`; rows are titled by file name under their directory. */
 function expand(path: string): void {
-  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }))
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }))
 }
 
 /** An architect-model form over a store the test drives; actions are spies. */
@@ -188,6 +190,45 @@ describe('ArchitecturePage', () => {
     expect(screen.queryByText('Body of storage.')).toBeNull()
     expand('design/arch.md')
     expect(screen.queryByRole('button', { name: '查看 design/arch.md#storage' })).toBeNull()
+  })
+
+  it('groups sources by directory, searches paths and titles, and narrows to uncommitted sources', () => {
+    const many = Array.from({ length: 13 }, (_, n) => `notes/n${String(n)}.md`)
+    const base = snapshot()
+    const sections = [
+      ...base.index.sections,
+      { path: 'README.md', anchor: '', title: '', level: 0, line: 1, endLine: 1, hash: HASH },
+      ...many.map(path => ({ path, anchor: 'note', title: `Note ${path}`, level: 1, line: 1, endLine: 1, hash: HASH })),
+    ]
+    const status = { ...base.sourceStatus, 'README.md': 'committed', ...Object.fromEntries(many.map(path => [path, 'committed'])) }
+    fixture({ snapshot: { ...base, index: { ...base.index, sections: sections as never }, sourceStatus: status as never } })
+    // Many sources start with every directory closed; committed sources carry no status tag.
+    expect(screen.getByText('16 个来源 · 17 个章节')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^design\// }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText(zh['status.committed'])).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${zh['index.root']}`) }))
+    expand('README.md')
+    expect(screen.getByRole('button', { name: '查看 README.md#' }).textContent).toBe(zh['section.preamble'])
+
+    // A query opens what it matched: a title match shows only that section, a path match all of the source.
+    const search = screen.getByRole('searchbox', { name: zh['index.search'] })
+    fireEvent.change(search, { target: { value: 'STORAGE' } })
+    expect(screen.getByText('1 个来源 · 1 个章节')).toBeTruthy()
+    expect(screen.getByText('1 / 2 个章节')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '查看 design/arch.md#storage' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '查看 design/arch.md#arch' })).toBeNull()
+    fireEvent.change(search, { target: { value: 'design/arch' } })
+    expect(screen.getByRole('button', { name: '查看 design/arch.md#arch' })).toBeTruthy()
+    // The user may still close a directory the query opened.
+    fireEvent.click(screen.getByRole('button', { name: /^design\// }))
+    expect(screen.queryByRole('button', { name: '查看 design/arch.md#arch' })).toBeNull()
+    fireEvent.change(search, { target: { value: 'nothing-matches' } })
+    expect(screen.getByText(zh['index.noMatch'])).toBeTruthy()
+
+    fireEvent.change(search, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('tab', { name: zh['index.scope.uncommitted'] }))
+    expect(screen.getByText('1 个来源 · 1 个章节')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^arch\.md/ })).toBeNull()
   })
 
   it('explains a workspace outside version control and offers no discussion there', async () => {
