@@ -12,9 +12,15 @@
 
 ## 咨询与裁定
 
-工作 Agent 的 `ConsultRequest` 在其 Session 下以隐藏子 Agent 的形式运行架构师，使用配置的架构师模型；未配置时使用工作 Agent 的模型。架构师只能使用配置的工具，并且必须调用 `submit_ruling`。服务把提交内容转换为裁定（Ruling）：只有当约束的每条引用都指向当前内容已提交到主分支或已被用户接受的已索引章节时，该约束才具有约束力。其他约束连同原因成为未决点。提交内容还可以附带修改提议，每条按指明的内容哈希替换一个已索引章节。服务按编辑规则和当前索引校验每条提议，把无效的提议连同原因转为未决点；它不写入任何提议。修改提议不约束任何工作 Agent，也不会让任何内容变得可引用。咨询从不修改记录：每次修改都由用户授权，可以在架构会话中进行，也可以在仪表盘中应用修改提议。`ConsultResult` 是附带索引修订的裁定、超时，或未提交即结束的运行。
+一次咨询是一个 worker 会话与一个架构师会话 `architect-<uuid>` 之间的对话；架构师会话是发起它的 worker 会话的隐藏子会话，其会话 id 就是咨询 id。不带 `continue` 的 `ConsultRequest` 会创建架构师会话，使用配置的架构师模型，未配置时使用 worker 的模型，并把该模型路由记录在架构师会话中；此后这次咨询的每一轮都使用同一路由。带 `continue` 的 `ConsultRequest` 指定一个咨询 id，服务为新一轮恢复该架构师会话。除非架构师会话持久化的 `parentSession` 正是发起调用的 worker 会话，服务会拒绝接续；该架构师会话仍在运行时也会拒绝。一次咨询可以接续任意多次；架构师会话的压缩机制限制其上下文。
 
-工作 Agent 的工具结果提交后，工具包在 `.architecture/rulings/` 下写入 `RulingRecord`。记录复制裁定及其修改提议、两个 Session id、索引修订、状态，以及用户已应用和已不采用的修改提议；同一修改提议不会两者兼有。工作 Agent 的日志仍是其所收到内容的权威来源；记录只是仪表盘的副本，工作 Agent 永远不会收到已应用或不采用的标记。
+每一轮都会重建索引，只给架构师其配置的工具（不含 `architecture_edit` 与 `ask_user_question`）以及 `submit_ruling`，并把 worker 的问题作为记录在架构师会话中的用户消息发送。架构师的系统提示词写明这一轮的时间预算 `consultTimeoutMs`。`consultNudgeMs` 到时若仍未提交，服务会向架构师发送一条记录在其会话中的用户消息，要求它立即提交，并把未定的点写进 `unresolved`。到 `consultTimeoutMs` 时服务取消并释放架构师，这一轮以超时结束。
+
+服务把提交转换为 Ruling：只有当每条引用都指向一个已索引章节，且该章节当前内容已提交到主分支或已被用户接受时，约束才具有约束力。其他约束会连同原因转为未决点。提交还可以带有修改提议，每条提议替换一个按给定内容哈希读取的已索引章节。服务按编辑规则和当前索引校验每条提议，把无效的提议连同原因转为未决点并丢弃；服务不写入任何提议。修改提议不约束任何 worker，也不会让任何内容变得可引用。咨询从不改变记录：每项更改都由用户授权，在 Architecture Session 中进行，或在仪表盘中应用修改提议。
+
+一次咨询最多有一个待定的 Ruling id。以超时或未提交结束的一轮返回待定 id 并保持其待定，这次咨询中的下一次提交以该 id 发布其 Ruling；已发布 Ruling 之后的一轮会生成新的待定 id。每次提交最多发布一个 Ruling，任何 id 都不会对应两个 Ruling。架构师会话日志记录每一轮的 Ruling id 和每次提交，服务只从该日志推导待定 id，因此重启既不会丢失也不会重用 id；日志中已记录提交的 id 即使 worker 从未收到结果也算已发布。`Ruling.question` 与 `Ruling.scope` 取产生该 Ruling 的那一轮；这次咨询更早的问题保留在架构师会话日志中。`ConsultResult` 是带索引修订的 Ruling、一次超时，或一轮未提交即结束；每种都带有 Ruling id 和咨询 id。
+
+工作 Agent 的工具结果提交后，工具包为 worker 收到的每个 Ruling 在 `.architecture/rulings/` 下写入一个 `RulingRecord`。记录复制裁定及其修改提议、两个 Session id、索引修订、状态，以及用户已应用和已不采用的修改提议；同一修改提议不会两者兼有。架构师会话 id 把一次咨询的各个 Ruling 归为一组。工作 Agent 的日志仍是其所收到内容的权威来源；记录只是仪表盘的副本，工作 Agent 永远不会收到已应用或不采用的标记。
 
 ## 申诉与接受
 
@@ -121,10 +127,15 @@ async readSection( cwd: string, path: string, anchor: string, signal?: AbortSign
  * Ask the architect one question on behalf of a worker. The service rebuilds
  * the index of the worker's repository, runs an architect agent as a hidden
  * child of the worker's Session, and validates its submission into a Ruling
- * whose every constraint cites a section committed on `mainBranch`.
- * @param request - worker, question, scope, and cancellation.
- * @returns the Ruling, or an unresolved result naming why there is none.
- * @throws when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.
+ * whose every constraint cites a section committed on `mainBranch`. With
+ * `continue`, it resumes that consultation's architect Session for another
+ * turn on the route the consultation started with; a timeout or a turn
+ * without a submission leaves its Ruling id pending for the next turn.
+ * @param request - worker, question, scope, cancellation, and the consultation to continue.
+ * @returns the Ruling, or an unresolved result naming why there is none; each names the consultation.
+ * @throws when the worker has no working directory, the repository has no manifest, or the agent services are not
+ *   mounted, or when `continue` names no consultation the worker started, names one still running, or the session
+ *   query service is not mounted.
  */
 async consult(request: ConsultRequest): Promise<ConsultResult>
 

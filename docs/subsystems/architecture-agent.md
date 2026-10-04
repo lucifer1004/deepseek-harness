@@ -12,9 +12,15 @@ Architecture sources change only in the primary checkout: the primary git worktr
 
 ## Consultation and Rulings
 
-A worker's `ConsultRequest` runs an architect agent as a hidden child of the worker Session, on the configured architect model or, when none is set, on the worker's model. The architect may use only its configured tools and must call `submit_ruling`. The service turns the submission into a Ruling: a constraint binds only when every citation names an indexed section whose current content is committed on the main branch or accepted by the user. Other constraints become unresolved points with the reason. A submission may also carry proposed edits, each replacing one indexed section read at a stated content hash. The service validates each against the edit rule and the current index and drops an invalid one with its reason as an unresolved point; it writes none. A proposed edit binds no worker and makes nothing citable. A consultation never changes the record: the user authorizes every change, in an Architecture Session or by applying a proposed edit in the dashboard. `ConsultResult` is a Ruling with its index revision, a timeout, or an ended run without a submission.
+A consultation is a conversation between one worker Session and one architect Session, `architect-<uuid>`, a hidden child of the worker Session that started it; the architect Session id is the consultation id. A worker's `ConsultRequest` without `continue` creates the architect Session on the configured architect model or, when none is set, on the worker's model, and records that model route in the architect Session; every later turn of the consultation runs on the same route. A `ConsultRequest` with `continue` names a consultation id, and the service resumes that architect Session for a new turn. The service refuses a continuation unless the architect Session's persisted `parentSession` is the calling worker's Session, and refuses it while that architect Session is live. A consultation may be continued any number of times; the architect Session's compaction bounds its context.
 
-After the worker's tool result is committed, the tool package writes a `RulingRecord` under `.architecture/rulings/`. The record copies the Ruling with its proposed edits, both Session ids, the index revision, a status, which proposed edits the user applied, and which the user dismissed; no proposed edit is both. The worker's log remains the authority for what the worker received; the record is a dashboard copy, and the worker never receives the applied or dismissed markers.
+Each turn rebuilds the index, gives the architect only its configured tools, without `architecture_edit` and `ask_user_question`, plus `submit_ruling`, and sends the worker's question as a user message logged in the architect Session. The architect's system prompt states the turn's time budget, `consultTimeoutMs`. When `consultNudgeMs` elapses without a submission, the service steers the architect with a user message, logged in the architect Session, telling it to submit now and to put open points in `unresolved`. At `consultTimeoutMs` the service cancels and disposes the architect, and the turn ends as a timeout.
+
+The service turns a submission into a Ruling: a constraint binds only when every citation names an indexed section whose current content is committed on the main branch or accepted by the user. Other constraints become unresolved points with the reason. A submission may also carry proposed edits, each replacing one indexed section read at a stated content hash. The service validates each against the edit rule and the current index and drops an invalid one with its reason as an unresolved point; it writes none. A proposed edit binds no worker and makes nothing citable. A consultation never changes the record: the user authorizes every change, in an Architecture Session or by applying a proposed edit in the dashboard.
+
+A consultation has at most one pending Ruling id. A turn that ends in a timeout or without a submission returns the pending id and leaves it pending, and the next submission in the consultation issues its Ruling under that id; the turn after an issued Ruling mints a new pending id. Each submission issues at most one Ruling, and no id names two Rulings. The architect Session log records each turn's Ruling id and each submission, and the service derives the pending id from that log alone, so a restart neither loses nor reuses an id; an id whose submission the log records is issued even when the worker never received the result. `Ruling.question` and `Ruling.scope` are those of the turn that produced the Ruling; the consultation's earlier questions remain in the architect Session log. `ConsultResult` is a Ruling with its index revision, a timeout, or an ended turn without a submission; each carries the Ruling id and the consultation id.
+
+After the worker's tool result is committed, the tool package writes a `RulingRecord` under `.architecture/rulings/` for each Ruling the worker received. The record copies the Ruling with its proposed edits, both Session ids, the index revision, a status, which proposed edits the user applied, and which the user dismissed; no proposed edit is both. The architect Session id groups a consultation's Rulings. The worker's log remains the authority for what the worker received; the record is a dashboard copy, and the worker never receives the applied or dismissed markers.
 
 ## Appeals and acceptance
 
@@ -121,10 +127,15 @@ async readSection( cwd: string, path: string, anchor: string, signal?: AbortSign
  * Ask the architect one question on behalf of a worker. The service rebuilds
  * the index of the worker's repository, runs an architect agent as a hidden
  * child of the worker's Session, and validates its submission into a Ruling
- * whose every constraint cites a section committed on `mainBranch`.
- * @param request - worker, question, scope, and cancellation.
- * @returns the Ruling, or an unresolved result naming why there is none.
- * @throws when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.
+ * whose every constraint cites a section committed on `mainBranch`. With
+ * `continue`, it resumes that consultation's architect Session for another
+ * turn on the route the consultation started with; a timeout or a turn
+ * without a submission leaves its Ruling id pending for the next turn.
+ * @param request - worker, question, scope, cancellation, and the consultation to continue.
+ * @returns the Ruling, or an unresolved result naming why there is none; each names the consultation.
+ * @throws when the worker has no working directory, the repository has no manifest, or the agent services are not
+ *   mounted, or when `continue` names no consultation the worker started, names one still running, or the session
+ *   query service is not mounted.
  */
 async consult(request: ConsultRequest): Promise<ConsultResult>
 
