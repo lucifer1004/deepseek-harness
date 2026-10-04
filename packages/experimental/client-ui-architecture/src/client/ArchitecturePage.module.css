@@ -276,6 +276,12 @@
   gap: 8px;
 }
 
+.rulingId {
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
 .question {
   flex: 1;
   min-width: 0;

@@ -245,8 +245,8 @@ describe('ArchitecturePage', () => {
     expect(screen.getByText(/^Branch main · 1 source · 1 section · revision/)).toBeTruthy()
     expect(screen.getByText('1 record file could not be read')).toBeTruthy()
     expect(screen.getByText('1 source · 1 section')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.consultations'] }))
-    expect(screen.getByText('1 constraint · 2 unresolved · 1 proposed edit')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: `${en['tab.consultations']} · 1` }))
+    expect(screen.getByText('1 edit to review')).toBeTruthy()
     const diagnostics = [{ path: 'a.md', message: 'x' }, { path: 'b.md', message: 'y' }] as never
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: snapshot({ problems: [{ file: 'a', message: 'b' }, { file: 'c', message: 'd' }] as never }) })
     expect(await screen.findByText('2 record files could not be read')).toBeTruthy()
@@ -347,8 +347,12 @@ describe('ArchitecturePage', () => {
     // A long current section collapses the middle of the diff.
     const long = Array.from({ length: 30 }, (_, line) => `Line ${String(line)}.`).join('\n')
     props.readSection.mockImplementation(async (_ws, path, anchor) => anchor === 'gone' ? undefined : { path, anchor, hash: HASH, text: `## ${anchor}\n\n${long}` })
+    // The arch edit's section changed, so two edits are left to review; the tab and the collapsed card count them.
+    expect(screen.getByRole('tab', { name: `${zh['tab.consultations']} · 2` })).toBeTruthy()
     tab(zh['tab.consultations'])
-    expect(screen.getByText('1 条约束 · 2 个未决点 · 3 条修改提议')).toBeTruthy()
+    expect(screen.getByText('1 条约束 · 2 个未决点')).toBeTruthy()
+    expect(screen.getByText('2 条提议待处理')).toBeTruthy()
+
     unfold('Where does persistence go?')
     expect(screen.getByText(zh['ruling.proposedEdits'])).toBeTruthy()
     expect(screen.getByText('name the port')).toBeTruthy()
@@ -372,10 +376,24 @@ describe('ArchitecturePage', () => {
     expect(await screen.findByText('未能应用：design/arch.md#storage changed since it was read')).toBeTruthy()
     expect(props.applyProposedEdit).toHaveBeenLastCalledWith(WS, 'ruling-1', 0, false)
 
-    // Once applied, the proposal shows its state and no longer offers the actions.
+    // Once applied, the proposal shows its state and no longer offers the actions; nothing is left to review.
     const applied = { ...withEdits, rulings: [{ ...withEdits.rulings[0], appliedEdits: [0] }] as never }
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: applied })
     expect(await screen.findByText(zh['ruling.proposedEdit.applied'])).toBeTruthy()
+    expect(screen.getByRole('tab', { name: `${zh['tab.consultations']} · 1` })).toBeTruthy()
+    expect(screen.getByText('1 条提议待处理')).toBeTruthy()
+    expect(screen.queryByText(zh['ruling.allApplied'])).toBeNull()
+    // With the remaining edits blocked, nothing is left to review and the card counts its edits instead.
+    const blocked = { ...applied, index: base.index }
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: blocked })
+    expect(await screen.findByText('1 条约束 · 2 个未决点 · 3 条修改提议')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: zh['tab.consultations'] })).toBeTruthy()
+    // With every edit applied, the card says so.
+    const done = { ...withEdits, rulings: [{ ...withEdits.rulings[0], ruling: { ...withEdits.rulings[0]?.ruling, id: 'ruling-b9c92c10-22c7-4280-ab97-85aacf8c5c9e' }, appliedEdits: [0, 1, 2] }] as never }
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: done })
+    expect(await screen.findByText(zh['ruling.allApplied'])).toBeTruthy()
+    // The collapsed form names the Ruling as a worker does in prose.
+    expect(screen.getByText('b9c92c10')).toBeTruthy()
     await waitFor(() => { expect(screen.queryByRole('button', { name: zh['ruling.proposedEdit.apply'] })).toBeNull() })
   })
 

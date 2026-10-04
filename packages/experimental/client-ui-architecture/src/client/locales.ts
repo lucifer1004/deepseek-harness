@@ -148,6 +148,9 @@ export const zh = {
   'ruling.count.constraints.one': '{count} 条约束',
   'ruling.count.constraints.other': '{count} 条约束',
   'ruling.count.unresolved': '{count} 个未决点',
+  'ruling.pendingEdits.one': '{count} 条提议待处理',
+  'ruling.pendingEdits.other': '{count} 条提议待处理',
+  'ruling.allApplied': '提议已全部应用',
   'ruling.count.proposedEdits.one': '{count} 条修改提议',
   'ruling.count.proposedEdits.other': '{count} 条修改提议',
 } as const
@@ -300,6 +303,9 @@ export const en: Record<ArchitectureKey, string> = {
   'ruling.count.constraints.one': '{count} constraint',
   'ruling.count.constraints.other': '{count} constraints',
   'ruling.count.unresolved': '{count} unresolved',
+  'ruling.pendingEdits.one': '{count} edit to review',
+  'ruling.pendingEdits.other': '{count} edits to review',
+  'ruling.allApplied': 'Edits applied',
   'ruling.count.proposedEdits.one': '{count} proposed edit',
   'ruling.count.proposedEdits.other': '{count} proposed edits',
 }

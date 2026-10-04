@@ -34,7 +34,7 @@ import type { ArchitectModelForm } from './architect-model.ts'
 import type { DashboardState } from './dashboard-source.ts'
 import { counted } from './counted.ts'
 import { Fold } from './Fold.tsx'
-import { ProposedEdits } from './ProposedEdits.tsx'
+import { pendingEdits, ProposedEdits } from './ProposedEdits.tsx'
 import { SettingsView } from './SettingsView.tsx'
 import { SourceList, STATUS_TONE } from './SourceList.tsx'
 import css from './ArchitecturePage.module.css'
@@ -101,7 +101,12 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
   const now = useMemo(() => Date.now(), [snapshot])
   const tabs = [
     { value: 'architecture', label: t('tab.architecture'), id: 'architecture-tab-architecture', panelId: 'architecture-panel' },
-    { value: 'consultations', label: t('tab.consultations'), id: 'architecture-tab-consultations', panelId: 'architecture-panel' },
+    {
+      value: 'consultations',
+      label: pendingEditCount(snapshot) === 0 ? t('tab.consultations') : `${t('tab.consultations')} · ${String(pendingEditCount(snapshot))}`,
+      id: 'architecture-tab-consultations',
+      panelId: 'architecture-panel',
+    },
     {
       value: 'appeals',
       label: pendingCount(snapshot) === 0 ? t('tab.appeals') : `${t('tab.appeals')} · ${String(pendingCount(snapshot))}`,
@@ -234,6 +239,18 @@ function sourceStatus(snapshot: ArchitectureSnapshot, path: string): GitFileStat
   return status
 }
 
+/** The first group of a Ruling id, as a worker names the Ruling in prose: `ruling-b9c92c10-…` reads `b9c92c10`. */
+function shortId(id: string): string {
+  const rest = id.replace(/^ruling-/, '')
+  const dash = rest.indexOf('-')
+  return dash === -1 ? rest : rest.slice(0, dash)
+}
+
+function pendingEditCount(snapshot: ArchitectureSnapshot | null): number {
+  if (snapshot === null) return 0
+  return snapshot.rulings.reduce((sum, record) => sum + pendingEdits(snapshot, record), 0)
+}
+
 function pendingCount(snapshot: ArchitectureSnapshot | null): number {
   return snapshot?.appeals.filter(appeal => appeal.adjudication === undefined).length ?? 0
 }
@@ -361,11 +378,13 @@ type RulingCardProps = WorkspaceViewProps & { readonly record: RulingRecord & { 
 function RulingCard(props: RulingCardProps): ReactNode {
   const { record, now, t } = props
   const { ruling } = record
+  const pending = pendingEdits(props.snapshot, record)
   const counts = [
     counted(t, 'ruling.count.constraints', ruling.constraints.length),
     ...ruling.unresolved.length === 0 ? [] : [t('ruling.count.unresolved', { count: String(ruling.unresolved.length) })],
-    ...ruling.proposedEdits.length === 0 ? [] : [counted(t, 'ruling.count.proposedEdits', ruling.proposedEdits.length)],
+    ...ruling.proposedEdits.length === 0 || pending > 0 ? [] : [counted(t, 'ruling.count.proposedEdits', ruling.proposedEdits.length)],
   ]
+  const allApplied = ruling.proposedEdits.length > 0 && ruling.proposedEdits.every((_, index) => record.appliedEdits.includes(index))
   return (
     <li className={css.card}>
       <Fold
@@ -374,8 +393,11 @@ function RulingCard(props: RulingCardProps): ReactNode {
         defaultOpen={false}
         aside={(
           <>
+            <span className={css.rulingId}>{shortId(ruling.id)}</span>
             <Tag tone={RULING_TONE[record.status]}>{t(`ruling.status.${record.status}`)}</Tag>
             {record.stale && <Tag tone="warning">{t('ruling.stale')}</Tag>}
+            {pending > 0 && <Tag tone="warning">{counted(t, 'ruling.pendingEdits', pending)}</Tag>}
+            {allApplied && <Tag tone="success">{t('ruling.allApplied')}</Tag>}
             <span className={css.meta}>{counts.join(' · ')}</span>
           </>
         )}

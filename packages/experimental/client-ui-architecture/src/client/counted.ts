@@ -11,6 +11,7 @@ export type CountedKey =
   | 'diff.expand'
   | 'ruling.count.constraints'
   | 'ruling.count.proposedEdits'
+  | 'ruling.pendingEdits'
 
 /**
  * Translate a count with the form its number takes.

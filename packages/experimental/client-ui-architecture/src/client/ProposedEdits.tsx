@@ -11,6 +11,39 @@ import { counted } from './counted.ts'
 import { Fold } from './Fold.tsx'
 import css from './ArchitecturePage.module.css'
 
+/** Where one proposed edit stands: applied, open for the user, or blocked by a change to its section. */
+export type ProposedEditState = 'applied' | 'pending' | 'changed'
+
+/**
+ * Classify one proposed edit of a recorded Ruling against the current index.
+ * @param snapshot - the repository's current state.
+ * @param record - the Ruling that carries the edit.
+ * @param edit - the edit.
+ * @param index - the edit's index in `ruling.proposedEdits`.
+ * @returns `pending` only when applying it would not be refused for a changed section.
+ */
+export function proposedEditState(
+  snapshot: ArchitectureSnapshot,
+  record: RulingRecord,
+  edit: ProposedEdit,
+  index: number,
+): ProposedEditState {
+  if (record.appliedEdits.includes(index)) return 'applied'
+  // The architect read the section at `edit.hash`; any other current hash means applying would be refused.
+  const current = snapshot.index.sections.find(entry => entry.path === edit.path && entry.anchor === edit.anchor)
+  return current?.hash === edit.hash ? 'pending' : 'changed'
+}
+
+/**
+ * Count the proposed edits of a Ruling that the user can still apply.
+ * @param snapshot - the repository's current state.
+ * @param record - the Ruling.
+ * @returns the number of pending edits.
+ */
+export function pendingEdits(snapshot: ArchitectureSnapshot, record: RulingRecord): number {
+  return record.ruling.proposedEdits.filter((edit, index) => proposedEditState(snapshot, record, edit, index) === 'pending').length
+}
+
 /** Actions the proposed-edit list needs from the page. */
 export interface ProposedEditActions {
   /** Read one section's current text. */
@@ -40,7 +73,7 @@ export function ProposedEdits(props: ProposedEditsProps): ReactNode {
       <p className={css.meta}>{t('ruling.proposedEdits.hint')}</p>
       <ul className={css.proposals}>
         {record.ruling.proposedEdits.map((edit, index) => (
-          <ProposedEditItem key={`${edit.path}#${edit.anchor}`} {...props} edit={edit} index={index} applied={record.appliedEdits.includes(index)} />
+          <ProposedEditItem key={`${edit.path}#${edit.anchor}`} {...props} edit={edit} index={index} state={proposedEditState(props.snapshot, record, edit, index)} />
         ))}
       </ul>
     </Fold>
@@ -49,14 +82,13 @@ export function ProposedEdits(props: ProposedEditsProps): ReactNode {
 
 type CurrentText = { readonly kind: 'loading' } | { readonly kind: 'text'; readonly text: string } | { readonly kind: 'gone' }
 
-type ProposedEditItemProps = ProposedEditsProps & { readonly edit: ProposedEdit; readonly index: number; readonly applied: boolean }
+type ProposedEditItemProps = ProposedEditsProps & { readonly edit: ProposedEdit; readonly index: number; readonly state: ProposedEditState }
 
 function ProposedEditItem(props: ProposedEditItemProps): ReactNode {
-  const { workspaceId, snapshot, record, edit, index, applied, applyProposedEdit, t } = props
+  const { workspaceId, record, edit, index, state, applyProposedEdit, t } = props
   const cite = `${edit.path}#${edit.anchor}`
-  const section = snapshot.index.sections.find(entry => entry.path === edit.path && entry.anchor === edit.anchor)
-  // The architect read the section at `edit.hash`; any other current hash means applying would be refused.
-  const changed = !applied && section?.hash !== edit.hash
+  const applied = state === 'applied'
+  const changed = state === 'changed'
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const labels = useMemo<DiffBlockLabels>(() => ({
