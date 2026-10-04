@@ -60,6 +60,22 @@ export interface VcsFiles {
     signal: AbortSignal | undefined,
   ): Promise<ReadonlyMap<string, ChangedStatus>>
   /**
+   * Report files under the given globs whose content is not the committed version, without first listing them, so a
+   * caller can run it beside {@link VcsFiles.list}. It never reports a file the VCS ignores.
+   * @param root - primary checkout root.
+   * @param branch - main branch; jj compares with it, git with the checkout's `HEAD`.
+   * @param globs - repository-relative POSIX globs, the ones {@link VcsFiles.list} received.
+   * @param signal - cancels the query.
+   * @returns the state of every reported path, a superset the caller limits to its sources; undefined when the VCS
+   *   needs the listed paths first, so the caller uses {@link VcsFiles.status} after listing.
+   */
+  globStatus(
+    root: string,
+    branch: string | undefined,
+    globs: readonly string[],
+    signal: AbortSignal | undefined,
+  ): Promise<ReadonlyMap<string, ChangedStatus> | undefined>
+  /**
    * The repository's local branches or bookmarks, any of which `mainBranch` may name.
    * @param checkout - the checkout.
    * @param signal - cancels the query.

@@ -72,17 +72,43 @@ export class GitFiles implements VcsFiles {
     paths: readonly string[],
     signal: AbortSignal | undefined,
   ): Promise<ReadonlyMap<string, ChangedStatus>> {
+    if (paths.length === 0) return new Map()
+    return this.statusOf(root, ['--ignored=matching', '--untracked-files=all'], paths.map(path => `:(literal)${path}`), signal)
+  }
+
+  private async statusOf(
+    root: string,
+    options: readonly string[],
+    pathspecs: readonly string[],
+    signal: AbortSignal | undefined,
+  ): Promise<ReadonlyMap<string, ChangedStatus>> {
     const states = new Map<string, ChangedStatus>()
-    if (paths.length === 0) return states
-    const result = await this.git.run([
-      'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all', '--no-renames', '--', ...paths.map(path => `:(literal)${path}`),
-    ], root, signal)
+    const result = await this.git.run(['status', '--porcelain=v1', '-z', ...options, '--no-renames', '--', ...pathspecs], root, signal)
     if (result.code !== 0) throw new Error(`git status failed in ${root}: ${result.stderr.trim()}`)
     for (const entry of nulEntries(result.stdout, 'git status', root)) {
       const code = entry.slice(0, 2)
       states.set(entry.slice(3), code === '??' ? 'untracked' : code === '!!' ? 'ignored' : 'modified')
     }
     return states
+  }
+
+  /**
+   * Report changed files under the globs with one `git status`. Without `--ignored`, an ignored file is never reported,
+   * as `ls-files --exclude-standard` never lists one.
+   * @param root - checkout root.
+   * @param _branch - unused: git compares with the checkout's `HEAD`.
+   * @param globs - repository-relative POSIX globs, as `:(glob)` pathspecs.
+   * @param signal - cancels the query.
+   * @returns the state of every reported path.
+   * @throws when git fails, times out, is aborted, prints more than the output cap, or ends mid-entry.
+   */
+  async globStatus(
+    root: string,
+    _branch: string | undefined,
+    globs: readonly string[],
+    signal: AbortSignal | undefined,
+  ): Promise<ReadonlyMap<string, ChangedStatus>> {
+    return this.statusOf(root, ['--untracked-files=all'], globs.map(glob => `:(glob)${glob}`), signal)
   }
 
   /**

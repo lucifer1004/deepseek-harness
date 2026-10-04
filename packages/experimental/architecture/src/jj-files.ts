@@ -124,6 +124,14 @@ export class JjFiles implements VcsFiles {
   }
 
   /**
+   * jj's status of a file it does not track needs the tracked list first, so it reports none without the listed paths.
+   * @returns undefined, so the caller uses {@link JjFiles.status} after listing.
+   */
+  globStatus(): Promise<ReadonlyMap<string, ChangedStatus> | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /**
    * List the local bookmarks, and the ones pointing to the working-copy commit or its parent as current.
    * @param checkout - the workspace.
    * @param signal - cancels the queries.

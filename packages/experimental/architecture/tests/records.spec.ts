@@ -90,6 +90,43 @@ function liveWorker(ctx: Context, cwd: string): { steer: ReturnType<typeof vi.fn
 }
 
 describe('architecture records', () => {
+  it('limits a snapshot\'s source status to indexed sources, before and after the first build', async () => {
+    const repo = await fixture()
+    await writeFile(join(repo, 'architecture.yml'), 'sources:\n  - design/*.md\nexclude:\n  - design/skip.md\n')
+    await writeFile(join(repo, 'design', 'skip.md'), '# Skip\n')
+    const ctx = await boot()
+    for (let run = 0; run < 2; run++) {
+      const snapshot = await ctx.architecture.snapshot(repo)
+      expect(snapshot.sourceStatus).toEqual({ 'design/arch.md': 'committed', 'design/draft.md': 'untracked' })
+    }
+    // An invalid manifest before any build leaves status to the listing, and the build reports it.
+    const other = await fixture()
+    await writeFile(join(other, 'architecture.yml'), 'sources: 3\n')
+    await expect((await boot()).architecture.snapshot(other)).rejects.toThrow()
+  })
+
+  it('notifies when a built index changes, reusing the sections of unchanged sources', async () => {
+    const repo = await fixture()
+    const ctx = await boot()
+    const changes: string[] = []
+    ctx.on('architecture/changed', (root) => { changes.push(root) })
+    const first = await ctx.architecture.rebuild(repo)
+    expect(changes).toEqual([])
+    await writeFile(join(repo, 'design', 'draft.md'), '# Draft\n\n## Later\n\nMore.\n')
+    const second = await ctx.architecture.rebuild(repo)
+    expect(changes).toEqual([repo])
+    // The unchanged source keeps its section values; the edited one is indexed again.
+    const arch = (index: typeof first) => index?.sections.filter(section => section.path === 'design/arch.md')
+    expect(arch(second)).toEqual(arch(first))
+    expect(second?.sections.map(section => section.anchor)).toEqual(['arch', 'storage', 'draft', 'later'])
+    // Removing the manifest changes the revision to empty.
+    await rm(join(repo, 'architecture.yml'))
+    expect(await ctx.architecture.rebuild(repo)).toBeUndefined()
+    expect(changes).toEqual([repo, repo])
+    await ctx.architecture.rebuild(repo)
+    expect(changes).toEqual([repo, repo])
+  })
+
   it('reports the dashboard snapshot with source status, local entries, and staleness', async () => {
     const repo = await fixture()
     const ctx = await boot()
@@ -110,11 +147,12 @@ describe('architecture records', () => {
       problems: [],
     })
     expect(empty.revision).toBe(indexRevision(empty.index))
-    expect(changes).toEqual([repo])
+    // The first build establishes the revision the caller receives, so it notifies no one.
+    expect(changes).toEqual([])
 
-    // Rebuilding an unchanged index does not notify again.
+    // Rebuilding an unchanged index does not notify either.
     await ctx.architecture.rebuild(repo)
-    expect(changes).toEqual([repo])
+    expect(changes).toEqual([])
 
     await ctx.architecture.recordRuling(repo, record())
     const storage = empty.index.sections.find(section => section.anchor === 'storage')
@@ -128,7 +166,7 @@ describe('architecture records', () => {
     expect(withRuling.rulings.find(entry => entry.ruling.id === RULING)).toMatchObject({ status: 'issued', stale: true, revision: 'r1' })
     // Records are files, and the local-entry view omits them.
     expect(await readdir(join(repo, '.architecture', 'rulings'))).toEqual(['ruling-1.json'])
-    expect(changes).toHaveLength(3)
+    expect(changes).toHaveLength(2)
     expect(withRuling.localEntries.map(entry => entry.path)).toEqual(['.architecture/notes/idea.md'])
 
     const current = { ...record(), ruling: { ...record().ruling, constraints: [{ statement: 's', citations: [{ path: brandString<never>('design/arch.md'), anchor: 'storage', hash: storage?.hash ?? brandString<never>('') }] }] } }
@@ -144,7 +182,7 @@ describe('architecture records', () => {
     ctx.on('architecture/changed', (root) => { changes.push(root) })
     await ctx.architecture.snapshot(repo)
     const snapshot = await ctx.architecture.snapshot(repo)
-    expect(changes).toEqual([repo])
+    expect(changes).toEqual([])
     expect(snapshot).toMatchObject({ hasManifest: false, revision: 'empty', index: { sources: [], sections: [] }, localEntries: [] })
     const outside = await scratch()
     expect(await ctx.architecture.snapshot(outside)).toMatchObject({ root: outside, unsupported: { kind: 'no-repository' }, hasManifest: false, rulings: [] })

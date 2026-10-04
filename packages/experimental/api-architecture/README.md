@@ -65,7 +65,7 @@ No direct effect.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The dashboard reads a whole snapshot on every change. Large indexes send every section each time; there is no incremental update.
+- The dashboard reads a whole snapshot on every change. Large indexes send every section each time; there is no incremental update. Each read waits for at least one version-control command, and under Linux user-systemd containment every spawn costs about 300 ms regardless of the command.
 
 -----
 

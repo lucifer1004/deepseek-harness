@@ -114,6 +114,8 @@ describe.skipIf(!hasJj())('ArchitectureService in a jj repository', { timeout: 3
     expect(await files.committed(repo, 'main', 'docs/new.md', undefined)).toBeUndefined()
     expect(await files.committed(repo, 'nope', 'docs/arch.md', undefined)).toBeUndefined()
     expect(await files.status(repo, 'main', [], undefined)).toEqual(new Map())
+    // jj needs the tracked list first, so a glob query defers to status after listing.
+    expect(await files.globStatus()).toBeUndefined()
     expect(await ctx.architecture.branches(repo)).toEqual({ vcs: 'jj', isPrimary: true, current: ['main'], all: ['main'] })
     expect(await files.status(repo, 'main', ['docs/ignored.md'], undefined)).toEqual(new Map([['docs/ignored.md', 'ignored']]))
     expect(await files.status(repo, undefined, ['docs/ignored.md', 'docs/new.md'], undefined))

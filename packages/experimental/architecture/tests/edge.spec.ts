@@ -124,6 +124,9 @@ describe('GitFiles', () => {
     expect(Object.fromEntries(await files.status(repo, undefined, ['a.md', 'b.md', 'new.md', 'ign.md'], undefined)))
       .toEqual({ 'a.md': 'modified', 'new.md': 'untracked', 'ign.md': 'ignored' })
     expect((await files.status(repo, undefined, [], undefined)).size).toBe(0)
+    // A glob query reports changed files without a listing, and never an ignored one.
+    expect(Object.fromEntries(await files.globStatus(repo, undefined, ['*.md'], undefined)))
+      .toEqual({ 'a.md': 'modified', 'new.md': 'untracked' })
     await expect(files.status(await scratch(), undefined, ['a.md'], undefined)).rejects.toThrow(/git status failed/)
     const outside = await scratch()
     await expect(files.branches({ vcs: 'git', root: outside, primaryRoot: outside, isPrimary: true, branch: undefined }, undefined))

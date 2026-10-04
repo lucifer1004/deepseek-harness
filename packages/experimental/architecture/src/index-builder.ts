@@ -27,7 +27,21 @@ export interface BuildIndexRequest {
   readonly listFiles: ListFiles
   /** Cancels listing and reads. */
   readonly signal?: AbortSignal | undefined
+  /**
+   * Sections of the previous build, by source path and the text they were indexed from. A source whose text is
+   * unchanged reuses its sections; the build returns the entries for its own sources only.
+   */
+  readonly previous?: SectionCache | undefined
 }
+
+/** Sections indexed from one source text. */
+export interface CachedSections {
+  readonly text: string
+  readonly sections: readonly IndexedSection[]
+}
+
+/** Indexed sections by source path, reused while a source's text is unchanged. */
+export type SectionCache = ReadonlyMap<SourcePath, CachedSections>
 
 /**
  * Match candidate paths against manifest globs.
@@ -47,12 +61,13 @@ export function matchSources(files: readonly string[], manifest: Pick<Architectu
  * @param request - root, manifest, limits, and file lister.
  * @returns the rebuilt index.
  */
-export async function buildIndex(request: BuildIndexRequest): Promise<ArchitectureIndex> {
+export async function buildIndex(request: BuildIndexRequest): Promise<ArchitectureIndex & { readonly cache: SectionCache }> {
   const files = await request.listFiles(request.root, request.manifest.sources, request.signal)
   const sources = matchSources(files, request.manifest)
   const sections: IndexedSection[] = []
   const diagnostics: IndexDiagnostic[] = []
   const decoder = new TextDecoder('utf-8', { fatal: true })
+  const cache = new Map<SourcePath, CachedSections>()
   for (const source of sources) {
     request.signal?.throwIfAborted()
     const absolute = join(request.root, source)
@@ -64,12 +79,18 @@ export async function buildIndex(request: BuildIndexRequest): Promise<Architectu
       }
       const bytes = await readFile(absolute, { signal: request.signal })
       const text = decoder.decode(bytes)
-      if (source.endsWith('.md')) sections.push(...indexSections(source, text))
+      if (source.endsWith('.md')) {
+        // Sections depend only on the path and the text, so unchanged text reuses them.
+        const reused = request.previous?.get(source)
+        const indexed = reused !== undefined && reused.text === text ? reused.sections : indexSections(source, text)
+        cache.set(source, { text, sections: indexed })
+        sections.push(...indexed)
+      }
     } catch (error) {
       // Node fs and TextDecoder reject only with Error instances.
       request.signal?.throwIfAborted()
       diagnostics.push({ path: source, message: (error as Error).message })
     }
   }
-  return { root: request.root, sources, sections, diagnostics }
+  return { root: request.root, sources, sections, diagnostics, cache }
 }

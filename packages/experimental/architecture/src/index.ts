@@ -27,7 +27,7 @@ import { foldConsultation, type ConsultationRoute } from './thread.ts'
 import { GitFiles } from './git-files.ts'
 import { canonicalizeForWrite, isProtected, writeCall, writeTarget, type ProtectedPaths } from './guard.ts'
 import { JjFiles } from './jj-files.ts'
-import { buildIndex } from './index-builder.ts'
+import { buildIndex, type SectionCache } from './index-builder.ts'
 import { declaredMainBranch, ManifestError, parseManifest, withMainBranch } from './manifest.ts'
 import { locateCheckout } from './repository.ts'
 import { ACCEPTANCES_FILE, APPEALS_DIRECTORY, isMissing, RecordStore, RULINGS_DIRECTORY } from './records.ts'
@@ -266,6 +266,8 @@ export class ArchitectureService extends Service {
   private readonly roots = new Map<string, RootState>()
   private readonly architectTools: ReadonlySet<string>
   private readonly revisions = new Map<string, string>()
+  /** Sections of each root's last index build, holding one text per source, reused while a source is unchanged. */
+  private readonly sectionCaches = new Map<string, SectionCache>()
   /** Serializes read-modify-write of each repository's records. */
   private readonly writes = new Map<string, Promise<unknown>>()
   /** Lifts the tool mask of each agent currently composed with the architect preset. */
@@ -367,29 +369,31 @@ export class ArchitectureService extends Service {
     }
     if (!existsSync(manifestFile)) {
       this.roots.set(root, { manifest: undefined, index: undefined, protectedPaths: protectedBase })
-      if (this.revisions.get(root) !== EMPTY_REVISION) {
-        this.revisions.set(root, EMPTY_REVISION)
-        this.changed(root)
-      }
+      const previous = this.revisions.get(root)
+      this.revisions.set(root, EMPTY_REVISION)
+      if (previous !== undefined && previous !== EMPTY_REVISION) this.changed(root)
       return undefined
     }
     const manifest = parseManifest(await readFile(manifestFile, 'utf8'), this.config.manifestPath)
     const files = this.filesOf(checkout)
-    const index = await buildIndex({
+    const { cache, ...index } = await buildIndex({
       root,
       manifest,
       maxSourceBytes: this.config.maxSourceBytes,
       listFiles: (listRoot, globs, listSignal) => files.list(listRoot, globs, listSignal),
       signal,
+      previous: this.sectionCaches.get(root),
     })
+    this.sectionCaches.set(root, cache)
     const protectedFiles = new Set(protectedBase.files)
     for (const source of index.sources) protectedFiles.add(canonicalizeForWrite(join(root, source)))
     this.roots.set(root, { manifest, index, protectedPaths: { ...protectedBase, files: protectedFiles, sources: manifest } })
     const revision = indexRevision(index)
-    if (this.revisions.get(root) !== revision) {
-      this.revisions.set(root, revision)
-      this.changed(root)
-    }
+    const previous = this.revisions.get(root)
+    this.revisions.set(root, revision)
+    // The first build of a root establishes its revision: no reader could hold an earlier one, and the reader that
+    // asked receives this build.
+    if (previous !== undefined && previous !== revision) this.changed(root)
     return index
   }
 
@@ -798,21 +802,33 @@ export class ArchitectureService extends Service {
     }
     const checkout = found
     const root = checkout.primaryRoot
-    const built = await this.rebuild(root, signal)
-    const index = built ?? { root, sources: [], sections: [], diagnostics: [] }
-    const revision = built === undefined ? EMPTY_REVISION : indexRevision(built)
-    const localEntries = await this.localEntries(root)
-    const records = await this.store(root).read()
-    const mainBranch = this.mainBranchOf(root)
     const files = this.filesOf(checkout)
     // setMainBranch writes in the primary checkout, so its branch list is the one the dashboard offers.
     const primary = locateCheckout(root)
     /* v8 ignore next -- root is the primary root of a located checkout, so it locates. */
     if (primary === undefined) throw new Error(`${root} is not a checkout`)
-    const [status, branches] = await Promise.all([
-      files.status(root, mainBranch, [...index.sources, ...localEntries], signal),
+    const mainBranch = this.mainBranchOf(root)
+    // Every VCS query that needs no listing runs beside the index build, so a snapshot waits for one round of them.
+    const globs = this.manifestGlobs(root)
+    const localEntries = await this.localEntries(root)
+    const pending = [
       files.branches(primary, signal),
-    ])
+      files.status(root, mainBranch, localEntries, signal),
+      globs === undefined ? Promise.resolve(undefined) : files.globStatus(root, mainBranch, globs, signal),
+    ] as const
+    // A query that rejects while the index builds is awaited below; observing it here keeps it from going unhandled.
+    for (const query of pending) query.catch(() => undefined)
+    const built = await this.rebuild(root, signal)
+    const index = built ?? { root, sources: [], sections: [], diagnostics: [] }
+    const revision = built === undefined ? EMPTY_REVISION : indexRevision(built)
+    const records = await this.store(root).read()
+    const [branches, localStatus, sourceGlobStatus] = await Promise.all(pending)
+    // A glob query covers more than the sources, so only the indexed sources keep its states.
+    const sourceStatus = sourceGlobStatus ?? await files.status(root, mainBranch, index.sources, signal)
+    const status = new Map([...index.sources.flatMap((source) => {
+      const state = sourceStatus.get(source)
+      return state === undefined ? [] : [[source, state] as const]
+    }), ...localStatus])
     const gitStatus = (path: string): GitFileStatus => status.get(path) ?? 'committed'
     const current = new Map(index.sections.map(section => [`${section.path}#${section.anchor}`, section.hash]))
     const rulings = [...records.rulings.values()]
@@ -888,6 +904,18 @@ export class ArchitectureService extends Service {
    * The main branch of the repository at `root`: the manifest's `mainBranch`, else the service default. The manifest
    * is read on each call, so a branch change applies at once and a manifest under repair still names its branch.
    */
+  /** The source globs of the manifest the root's last build read, or of the manifest on disk before any build. */
+  private manifestGlobs(root: string): readonly string[] | undefined {
+    const built = this.roots.get(root)
+    if (built !== undefined) return built.manifest?.sources
+    try {
+      return parseManifest(readFileSync(join(root, this.config.manifestPath), 'utf8'), this.config.manifestPath).sources
+    } catch {
+      // An absent or invalid manifest leaves the sources to the listing; the index build reports it.
+      return undefined
+    }
+  }
+
   private mainBranchOf(root: string): string | undefined {
     let text: string
     try {
