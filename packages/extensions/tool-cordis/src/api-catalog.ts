@@ -460,10 +460,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async consult(request: ConsultRequest): Promise<ConsultResult>',
-        description: 'Ask the architect one question on behalf of a worker. The service rebuilds the index of the worker\'s repository, runs an architect agent as a hidden child of the worker\'s Session, and validates its submission into a Ruling whose every constraint cites a section committed on `mainBranch`.',
-        parameters: [{ name: 'request', description: 'worker, question, scope, and cancellation.' }],
-        returns: 'the Ruling, or an unresolved result naming why there is none.',
-        throws: ['when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.'],
+        description: 'Ask the architect one question on behalf of a worker. The service rebuilds the index of the worker\'s repository, runs an architect agent as a hidden child of the worker\'s Session, and validates its submission into a Ruling whose every constraint cites a section committed on `mainBranch`. With `continue`, it resumes that consultation\'s architect Session for another turn on the route the consultation started with; a timeout or a turn without a submission leaves its Ruling id pending for the next turn.',
+        parameters: [{ name: 'request', description: 'worker, question, scope, cancellation, and the consultation to continue.' }],
+        returns: 'the Ruling, or an unresolved result naming why there is none; each names the consultation.',
+        throws: ['when the worker has no working directory, the repository has no manifest, or the agent services are not mounted, or when `continue` names no consultation the worker started, names one still running, or the session query service is not mounted.'],
       },
       {
         signature: 'async recordRuling(cwd: string, record: Omit<RulingRecord, \'version\' | \'issuedAt\' | \'status\' | \'appliedEdits\' | \'dismissedEdits\'>): Promise<void>',
@@ -5126,7 +5126,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConsultRequest',
-    declaration: 'export interface ConsultRequest {\n    readonly worker: Agent;\n    readonly question: string;\n    readonly scope: readonly string[];\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface ConsultRequest {\n    readonly worker: Agent;\n    readonly question: string;\n    readonly scope: readonly string[];\n    readonly signal: AbortSignal;\n    readonly continue?: SessionId;\n}',
   },
   {
     name: 'ConsultResult',

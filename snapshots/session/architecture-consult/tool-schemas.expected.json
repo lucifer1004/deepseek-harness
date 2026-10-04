@@ -89,6 +89,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "continue": {
+            "type": "string",
+            "description": "Consultation id from an earlier consult_architect result, to ask that architect a follow-up; omit to start a new consultation."
           }
         },
         "required": [

@@ -16,11 +16,14 @@ import { scopeParentOf } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+// Type-only: the optional ctx.sessionQuery Context merge, which continuing a consultation reads.
+import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-settings'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { runConsultation, SUBMIT_RULING_TOOL, type ConsultationRun } from './consultation.ts'
+import { foldConsultation, type ConsultationRoute } from './thread.ts'
 import { GitFiles } from './git-files.ts'
 import { canonicalizeForWrite, isProtected, writeCall, writeTarget, type ProtectedPaths } from './guard.ts'
 import { JjFiles } from './jj-files.ts'
@@ -90,8 +93,8 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * A message the architecture service writes into a Session: an adjudication delivered to a worker, or the deadline
- * notice sent to a consultation's architect.
+ * A message the architecture service writes into a Session: an adjudication delivered to a worker, a consultation
+ * turn's question or its submit-now notice sent to the architect.
  */
 export type ArchitectureMessageSource =
   | {
@@ -101,12 +104,23 @@ export type ArchitectureMessageSource =
   }
   | {
     readonly kind: 'architecture'
-    /** The consultation's submit-now notice. */
+    /** The consultation turn's question, carrying the Ruling id the turn's submission issues under. */
+    readonly rulingId: RulingId
+  }
+  | {
+    readonly kind: 'architecture'
+    /** The consultation turn's submit-now notice. */
     readonly deadline: true
   }
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /**
+     * Messages the architecture service writes: adjudications in worker Sessions, and consultation questions and
+     * deadline notices in architect Sessions. Readers preserve these messages without the producer; only the
+     * architecture service reads the kind, to derive a consultation's pending Ruling id.
+     * @persistenceAttribution
+     */
     architecture: ArchitectureMessageSource
   }
 }
@@ -127,6 +141,8 @@ export interface ConsultRequest {
   readonly scope: readonly string[]
   /** Cancels the consultation, such as the consulting tool call's signal. */
   readonly signal: AbortSignal
+  /** Consultation id (its architect Session) to continue; omitted to start a consultation. */
+  readonly continue?: SessionId
 }
 
 /** Revision of a repository without a manifest. */
@@ -479,10 +495,15 @@ export class ArchitectureService extends Service {
    * Ask the architect one question on behalf of a worker. The service rebuilds
    * the index of the worker's repository, runs an architect agent as a hidden
    * child of the worker's Session, and validates its submission into a Ruling
-   * whose every constraint cites a section committed on `mainBranch`.
-   * @param request - worker, question, scope, and cancellation.
-   * @returns the Ruling, or an unresolved result naming why there is none.
-   * @throws when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.
+   * whose every constraint cites a section committed on `mainBranch`. With
+   * `continue`, it resumes that consultation's architect Session for another
+   * turn on the route the consultation started with; a timeout or a turn
+   * without a submission leaves its Ruling id pending for the next turn.
+   * @param request - worker, question, scope, cancellation, and the consultation to continue.
+   * @returns the Ruling, or an unresolved result naming why there is none; each names the consultation.
+   * @throws when the worker has no working directory, the repository has no manifest, or the agent services are not
+   *   mounted, or when `continue` names no consultation the worker started, names one still running, or the session
+   *   query service is not mounted.
    */
   async consult(request: ConsultRequest): Promise<ConsultResult> {
     const cwd = request.worker.session.header.cwd
@@ -495,6 +516,7 @@ export class ArchitectureService extends Service {
       throw new Error('architecture: consultation requires the agent registry and the agent preset registry')
     }
     const scopeLine = request.scope.length === 0 ? '' : `\n\nScope: ${request.scope.join(', ')}`
+    const thread = request.continue === undefined ? undefined : await this.openThread(request.worker, request.continue, request.signal)
     const outcome = await runConsultation({
       agents,
       presets,
@@ -503,10 +525,12 @@ export class ArchitectureService extends Service {
       prompt: `${request.question}${scopeLine}`,
       preset: this.config.architectPreset,
       tools: this.config.architectTools,
-      model: this.architectModel(),
+      // A continuation runs on the route its consultation started with.
+      model: thread === undefined ? this.architectModel() : thread.route,
       timeoutMs: this.config.consultTimeoutMs,
       nudgeMs: this.config.consultNudgeMs,
       signal: request.signal,
+      ...thread === undefined ? {} : { continuation: { session: thread.session, rulingId: thread.rulingId } },
     })
     if (outcome.kind !== 'submitted') return { kind: outcome.kind, id: outcome.id, session: outcome.session }
     const files = this.filesOf(this.requireCheckout(index.root))
@@ -522,6 +546,39 @@ export class ArchitectureService extends Service {
       section => accepted.has(acceptanceKey(section)),
     )
     return { kind: 'ruling', ruling, session: outcome.session, revision: indexRevision(index) }
+  }
+
+  /**
+   * Check that `worker` may continue the consultation `session`, and derive the Ruling id its next turn issues under.
+   * @param worker - the calling worker.
+   * @param session - the consultation id.
+   * @param signal - cancels the log read.
+   * @returns the route the consultation started with, and the pending or a new Ruling id.
+   * @throws when the id names no consultation the worker started, or the consultation is running.
+   */
+  private async openThread(
+    worker: Agent,
+    session: SessionId,
+    signal: AbortSignal,
+  ): Promise<{ readonly session: SessionId; readonly route: ConsultationRoute; readonly rulingId: RulingId }> {
+    const query = this.ctx.get('sessionQuery')
+    if (query === undefined) throw new Error('architecture: continuing a consultation requires the session query service')
+    // An unknown id, another worker's consultation, and a Session that is no consultation get one answer.
+    const unknown = new Error(`architecture: ${session} is not a consultation this Session started`)
+    if (this.ctx.get('agents')?.get(session) !== undefined) throw new Error(`architecture: consultation ${session} is still running`)
+    let observation: Awaited<ReturnType<typeof query.observeSession>>
+    try {
+      observation = await query.observeSession(session, { signal })
+    } catch (_error: unknown) {
+      // The query reports an id it cannot open; the worker learns only that it names no consultation of its own.
+      signal.throwIfAborted()
+      throw unknown
+    }
+    using source = observation
+    if (source.header.parentSession !== worker.id || source.header.agentPreset !== this.config.architectPreset) throw unknown
+    const thread = foldConsultation(source.events.slice(source.inheritedEventCount), SUBMIT_RULING_TOOL)
+    if (thread === undefined) throw unknown
+    return { session, route: thread.route, rulingId: thread.pendingRulingId ?? brandString<RulingId>(`ruling-${randomUUID()}`) }
   }
 
   /**

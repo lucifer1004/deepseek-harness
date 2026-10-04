@@ -1,20 +1,22 @@
 /**
- * Run one consultation: create an architect agent as a hidden child of the
- * worker's Session, give it a scoped `submit_ruling` tool, send the question,
- * and wait for a valid submission, the consultation deadline, or cancellation.
- * The submission is validated into a Ruling before the call resolves, and the
- * architect agent is disposed in every outcome.
+ * Run one consultation turn: create the architect agent as a hidden child of
+ * the worker's Session, or resume the architect Session a continuation names,
+ * give it a scoped `submit_ruling` tool, send the question, and wait for a
+ * valid submission, the turn's deadline, or cancellation. The submission is
+ * validated into a Ruling before the call resolves, and the architect agent is
+ * disposed in every outcome; its Session stays for the next turn.
  * @module @deepseek-ai/dsh-experimental-architecture/consultation
  */
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { RulingSubmission } from './ruling.ts'
+import { routeOf } from './thread.ts'
 import type { RulingId } from './types.ts'
 
 /** Model-facing name of the architect's answer tool inside a consultation. */
@@ -70,6 +72,8 @@ export interface ConsultationRun {
   readonly nudgeMs: number
   /** Worker-side cancellation, such as the consulting tool call's signal. */
   readonly signal: AbortSignal
+  /** The architect Session to resume and the Ruling id its turn issues under; omitted to start a consultation. */
+  readonly continuation?: { readonly session: SessionId; readonly rulingId: RulingId }
 }
 
 /** How a consultation run ended. */
@@ -141,6 +145,11 @@ function withModel(options: AgentOptions, model: NonNullable<ConsultationRun['mo
   return { ...rest, ...model }
 }
 
+/** Options a turn's architect runs with: the worker's, with the model route replaced when one is given. */
+function architectOptions(run: ConsultationRun): AgentOptions {
+  return run.model === undefined ? { ...run.worker.options } : withModel(run.worker.options, run.model)
+}
+
 /**
  * Run one consultation to its outcome.
  * @param run - registries, worker, prompt, composition, and bounds.
@@ -149,53 +158,55 @@ function withModel(options: AgentOptions, model: NonNullable<ConsultationRun['mo
  */
 export async function runConsultation(run: ConsultationRun): Promise<ConsultationOutcome> {
   run.signal.throwIfAborted()
-  const id = brandString<RulingId>(`ruling-${randomUUID()}`)
-  const sessionId = brandString<SessionId>(`architect-${randomUUID()}`)
+  const id = run.continuation?.rulingId ?? brandString<RulingId>(`ruling-${randomUUID()}`)
+  const sessionId = run.continuation?.session ?? brandString<SessionId>(`architect-${randomUUID()}`)
   let submission: RulingSubmission | undefined
   const header = run.worker.session.header
-  const handle = await run.agents.create({
-    sessionId,
-    parentAgent: run.worker,
-    meta: {
-      cwd: run.cwd,
-      parentSession: header.id,
-      origin: 'subagent',
-      agentPreset: run.preset,
-    },
-    // A configured architect model replaces the worker's model route, including its reasoning effort.
-    agentOptions: run.model === undefined ? { ...run.worker.options } : withModel(run.worker.options, run.model),
-    signal: run.signal,
-    setup: async (agentCtx, agent) => {
-      await run.presets.mount(agentCtx, run.preset)
-      restrictToArchitectTools(agentCtx, agent, run.tools)
-      agentCtx.tools.register(defineTool({
-        name: SUBMIT_RULING_TOOL,
-        description: 'Submit your answer to the consultation. Call this exactly once, when your answer is complete.',
-        parameters: SUBMISSION_PARAMETERS,
-        output: {
-          schema: { type: 'object', additionalProperties: false, properties: { recorded: { type: 'boolean', required: true } } },
-          render: () => [{ type: 'text', text: 'Ruling submitted.' }],
-        },
-        execute(args, exec) {
-          submission ??= {
-            summary: args.summary,
-            constraints: args.constraints.map(entry => ({ statement: entry.statement, cites: entry.cites })),
-            unresolved: args.unresolved,
-            edits: (args.proposedEdits ?? []).map(({ cite, hash, content, rationale }) => ({ cite, hash, content, rationale })),
-          }
-          exec.concludeTurn()
-          return Promise.resolve({ recorded: true })
-        },
-      }))
-      agentCtx.tools.guard(exec => submission === undefined ? undefined : `the ruling is already submitted, so ${exec.name} is not executed`)
-      agentCtx.systemPrompt.section({
-        name: `tool:${SUBMIT_RULING_TOOL}`,
-        order: agentCtx.systemPrompt.getSectionOrder('STRUCTURED_OUTPUT'),
-        // The budget comes from the same run bounds that arm the timers below.
-        text: `${CONSULTATION_INSTRUCTION}\n\n${consultationBudget(run.timeoutMs)}`,
-      })
-    },
-  })
+  const agentOptions = architectOptions(run)
+  const setup: AgentSetup = async (agentCtx, agent) => {
+    await run.presets.mount(agentCtx, run.preset)
+    restrictToArchitectTools(agentCtx, agent, run.tools)
+    agentCtx.tools.register(defineTool({
+      name: SUBMIT_RULING_TOOL,
+      description: 'Submit your answer to the consultation. Call this exactly once, when your answer is complete.',
+      parameters: SUBMISSION_PARAMETERS,
+      output: {
+        schema: { type: 'object', additionalProperties: false, properties: { recorded: { type: 'boolean', required: true } } },
+        render: () => [{ type: 'text', text: 'Ruling submitted.' }],
+      },
+      execute(args, exec) {
+        submission ??= {
+          summary: args.summary,
+          constraints: args.constraints.map(entry => ({ statement: entry.statement, cites: entry.cites })),
+          unresolved: args.unresolved,
+          edits: (args.proposedEdits ?? []).map(({ cite, hash, content, rationale }) => ({ cite, hash, content, rationale })),
+        }
+        exec.concludeTurn()
+        return Promise.resolve({ recorded: true })
+      },
+    }))
+    agentCtx.tools.guard(exec => submission === undefined ? undefined : `the ruling is already submitted, so ${exec.name} is not executed`)
+    agentCtx.systemPrompt.section({
+      name: `tool:${SUBMIT_RULING_TOOL}`,
+      order: agentCtx.systemPrompt.getSectionOrder('STRUCTURED_OUTPUT'),
+      // The budget comes from the same run bounds that arm the timers below.
+      text: `${CONSULTATION_INSTRUCTION}\n\n${consultationBudget(run.timeoutMs)}`,
+    })
+    // A new consultation records the route every later turn resumes on.
+    if (run.continuation === undefined) agent.session.append('architecture/consultation', { version: 1, route: routeOf(agentOptions) })
+  }
+  // A continuation resumes the same architect Session, still a hidden child of the calling worker.
+  const handle = run.continuation === undefined
+    ? await run.agents.create({
+      sessionId,
+      parentAgent: run.worker,
+      meta: { cwd: run.cwd, parentSession: header.id, origin: 'subagent', agentPreset: run.preset },
+      // A configured architect model replaces the worker's model route, including its reasoning effort.
+      agentOptions,
+      signal: run.signal,
+      setup,
+    })
+    : await run.agents.resume({ resumeSessionId: sessionId, parentAgent: run.worker, agentOptions, signal: run.signal, setup })
   const architect = handle.agent
   const deadline = AbortSignal.timeout(run.timeoutMs)
   const stop = AbortSignal.any([run.signal, deadline])
@@ -208,7 +219,8 @@ export async function runConsultation(run: ConsultationRun): Promise<Consultatio
     architect.steer(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'architecture', deadline: true } }))
   }, run.nudgeMs)
   try {
-    architect.followup(createUserMessage({ content: [{ type: 'text', text: run.prompt }], source: { kind: 'user' } }))
+    // The question carries the Ruling id, so the log alone says which id this turn's submission issues under.
+    architect.followup(createUserMessage({ content: [{ type: 'text', text: run.prompt }], source: { kind: 'architecture', rulingId: id } }))
     await architect.whenIdle()
   } finally {
     clearTimeout(nudge)

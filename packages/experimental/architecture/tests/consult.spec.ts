@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -17,6 +17,8 @@ import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { TestSessionQuery } from '../../../subagent/subagent/tests/test-session-query.ts'
 import ArchitectureService, { SUBMIT_RULING_TOOL } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 
@@ -53,6 +55,8 @@ interface Booted { ctx: Context; adapter: MockAdapter; worker: Agent; repo: stri
 
 type BootConfig = Partial<Omit<Config, 'mainBranch' | 'architectProvider' | 'architectModel' | 'architectReasoningEffort'>> & {
   mainBranch?: string | null
+  /** Persist Sessions to JSONL and mount the session query, which continuing a consultation needs. */
+  persist?: boolean
   /** Raw architect model fields, which the schema turns into live references. */
   architect?: { architectProvider: string; architectModel: string; architectReasoningEffort?: string }
 }
@@ -65,13 +69,19 @@ async function boot(script: Script, config: BootConfig = {}): Promise<Booted> {
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   await mountAgentLoopTestDependencies(ctx)
+  if (config.persist === true) {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-architecture-sessions-'))
+    const persistence = await ctx.plugin(JsonlSessionPersistence, { root })
+    cleanups.push(async () => { await persistence.dispose(); await rm(root, { recursive: true, force: true }) })
+  }
   await ctx.plugin(AgentLoop, { agents: [] })
+  if (config.persist === true) await ctx.plugin(TestSessionQuery)
   await ctx.plugin(AgentPresets, { default: 'coding' })
   await ctx.plugin(LocalSubprocessRuntime)
   const tools = pathToFileURL(join(FIXTURES, 'plugins/preset-tools.js')).href
   await ctx.agentPresets.register({ id: 'coding', plugins: [{ name: tools, config: { tools: ['read', 'write'] } }] })
   await ctx.agentPresets.register({ id: 'architect', plugins: [{ name: tools, config: { tools: ['read', 'write', 'web_search'] } }] })
-  const { mainBranch = 'main', architect = {}, ...rest } = config
+  const { mainBranch = 'main', architect = {}, persist: _persist, ...rest } = config
   // A null mainBranch boots the service without a default branch.
   await ctx.plugin(ArchitectureService, {
     ...(mainBranch === null ? {} : { mainBranch }),
@@ -258,6 +268,82 @@ describe('ArchitectureService.consult', () => {
     // Submitting concludes the turn, so the slow sibling call finishes without another request.
     expect(adapter.requests).toHaveLength(1)
     expect(JSON.stringify(adapter.requests)).not.toContain('seconds remain')
+  })
+
+  it('continues a timed-out consultation in the same architect Session, issuing the Ruling id the worker holds', async () => {
+    const { ctx, adapter, worker } = await boot([
+      toolCallResponse('r1', 'read', {}),
+      'hang',
+      // A submission concludes its turn, so no closing text response follows it.
+      toolCallResponse('s1', SUBMIT_RULING_TOOL, submission),
+      toolCallResponse('s2', SUBMIT_RULING_TOOL, { ...submission, summary: 'Second.' }),
+    ], { persist: true, consultTimeoutMs: 400, consultNudgeMs: 300, architect: { architectProvider: 'mock', architectModel: 'architect-model' } })
+    const signal = new AbortController().signal
+    const first = await ctx.architecture.consult({ worker, question: 'Where does persistence go?', scope: [], signal })
+    expect(first.kind).toBe('timeout')
+    if (first.kind !== 'timeout') return
+    expect(first.session).toMatch(/^architect-/)
+
+    // A model configured after the consultation started does not move it off the route it started on.
+    const third0 = adapter.requests.length
+    const second = await ctx.architecture.consult({ worker, question: 'Only the store, please.', scope: [], signal, continue: first.session })
+    expect(second.kind).toBe('ruling')
+    if (second.kind !== 'ruling') return
+    expect(second.ruling.id).toBe(first.id)
+    expect(second.session).toBe(first.session)
+    expect(second.ruling.question).toBe('Only the store, please.')
+    // The resumed architect sees the earlier turn, and runs on the recorded route.
+    const resumed = adapter.requests[third0]
+    expect(resumed?.model).toBe('architect-model')
+    expect(JSON.stringify(resumed?.messages)).toContain('Where does persistence go?')
+    expect(JSON.stringify(resumed?.messages)).toContain('Only the store, please.')
+
+    // After a Ruling is issued, the next turn issues under a new id.
+    const third = await ctx.architecture.consult({ worker, question: 'And caching?', scope: [], signal, continue: first.session })
+    expect(third.kind).toBe('ruling')
+    if (third.kind !== 'ruling') return
+    expect(third.ruling.id).not.toBe(first.id)
+    expect(third.ruling.summary).toBe('Second.')
+  })
+
+  it('refuses to continue a consultation the worker did not start, an unknown id, or one still running', async () => {
+    const { ctx, worker, repo } = await boot([toolCallResponse('s1', SUBMIT_RULING_TOOL, submission), textResponse('hello')], { persist: true })
+    const signal = new AbortController().signal
+    const done = await ctx.architecture.consult({ worker, question: 'q', scope: [], signal })
+    if (done.kind !== 'ruling') throw new Error('expected a Ruling')
+    const other = await ctx.agents.create({ sessionId: SessionId('other-worker'), meta: { cwd: repo }, agentOptions: { provider: 'mock', model: 'mock' } })
+    await expect(ctx.architecture.consult({ worker: other.agent, question: 'q', scope: [], signal, continue: done.session }))
+      .rejects.toThrow(`${done.session} is not a consultation this Session started`)
+    await expect(ctx.architecture.consult({ worker, question: 'q', scope: [], signal, continue: SessionId('architect-missing') }))
+      .rejects.toThrow('architect-missing is not a consultation this Session started')
+    // A live Session cannot be resumed, so it is refused before its log is read.
+    await expect(ctx.architecture.consult({ worker, question: 'q', scope: [], signal, continue: worker.id }))
+      .rejects.toThrow(`consultation ${worker.id} is still running`)
+    // The worker's own Session, once disposed, has a log but records no consultation.
+    const child = await ctx.agents.create({
+      sessionId: SessionId('plain-child'), parentAgent: worker, meta: { cwd: repo, parentSession: worker.id, agentPreset: 'architect' },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    // A turn makes the Session durable, so the refusal comes from its log, which records no consultation.
+    child.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
+    await child.agent.whenIdle()
+    await child.dispose()
+    await expect(ctx.architecture.consult({ worker, question: 'q', scope: [], signal, continue: SessionId('plain-child') }))
+      .rejects.toThrow('plain-child is not a consultation this Session started')
+    // A child of this worker on another preset is no consultation either.
+    const helper = await ctx.agents.create({
+      sessionId: SessionId('coding-child'), parentAgent: worker, meta: { cwd: repo, parentSession: worker.id, agentPreset: 'coding' },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    await helper.dispose()
+    await expect(ctx.architecture.consult({ worker, question: 'q', scope: [], signal, continue: SessionId('coding-child') }))
+      .rejects.toThrow('coding-child is not a consultation this Session started')
+  })
+
+  it('refuses to continue without the session query service', async () => {
+    const { ctx, worker } = await boot([])
+    await expect(ctx.architecture.consult({ worker, question: 'q', scope: [], signal: new AbortController().signal, continue: SessionId('architect-1') }))
+      .rejects.toThrow('continuing a consultation requires the session query service')
   })
 
   it('refuses a deadline notice that is not before the hard stop', async () => {

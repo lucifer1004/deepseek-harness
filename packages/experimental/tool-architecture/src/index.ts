@@ -22,6 +22,7 @@ export const inject = ['architecture', 'tools', 'systemPrompt']
 export const WORKER_POLICY = [
   'This workspace keeps its architecture in committed documents. Before a change that adds or moves a responsibility between modules, changes a public interface or data format, or introduces a new dependency or pattern, call `consult_architect` with the concrete question and the paths involved.',
   'A Ruling\'s constraints are binding: follow them even when a local shortcut looks easier. Unresolved points are not constraints; decide them yourself or ask the user.',
+  'Each result names its consultation. To follow up, narrow a question, or retry after a timeout, call `consult_architect` again with `continue` set to that consultation: the architect keeps what it has already read, and a consultation can be continued any number of times.',
   'When you have concrete evidence that a constraint is wrong for this change, call `appeal_ruling` with the Ruling id, your reason, and the evidence. The constraint stays binding until the user decides; continue work it does not affect, or stop and wait.',
   'Architecture documents are read-only for you. Do not edit them with file tools or shell commands.',
 ].join('\n\n')
@@ -49,6 +50,7 @@ const CONSULT_OUTPUT = {
   properties: {
     status: { type: 'string', required: true, enum: ['ruling', 'timeout', 'no-submission'] },
     rulingId: { type: 'string', required: true },
+    consultation: { type: 'string', required: true },
     summary: { type: 'string' },
     constraints: {
       type: 'array',
@@ -97,11 +99,14 @@ type ConsultValue = InferValue<typeof CONSULT_OUTPUT>
  * @returns the value the model and PTC code receive.
  */
 export function consultValue(result: ConsultResult): ConsultValue {
-  if (result.kind !== 'ruling') return { status: result.kind, rulingId: result.id, constraints: [], unresolved: [], proposedEdits: [] }
+  if (result.kind !== 'ruling') {
+    return { status: result.kind, rulingId: result.id, consultation: result.session, constraints: [], unresolved: [], proposedEdits: [] }
+  }
   const ruling: Ruling = result.ruling
   return {
     status: 'ruling',
     rulingId: ruling.id,
+    consultation: result.session,
     summary: ruling.summary,
     constraints: ruling.constraints.map(constraint => ({
       statement: constraint.statement,
@@ -122,9 +127,11 @@ export function consultValue(result: ConsultResult): ConsultValue {
  * @returns the model-facing text.
  */
 export function renderConsultation(value: ConsultValue): string {
-  if (value.status === 'timeout') return `The architect did not answer in time (${value.rulingId}). No constraints apply; proceed with your own judgment or consult again with a narrower question.`
-  if (value.status === 'no-submission') return `The architect ended without a Ruling (${value.rulingId}). No constraints apply; proceed with your own judgment or consult again with a narrower question.`
-  const lines = [`Ruling ${value.rulingId}: ${value.summary ?? ''}`]
+  // A continuation keeps what the architect read, and its next Ruling takes the id the worker already holds.
+  const resume = `To continue, call consult_architect with continue: "${value.consultation}"; its next Ruling is ${value.rulingId}.`
+  if (value.status === 'timeout') return `The architect did not answer in time (consultation ${value.consultation}). No constraints apply yet. ${resume} Or proceed with your own judgment.`
+  if (value.status === 'no-submission') return `The architect ended without a Ruling (consultation ${value.consultation}). No constraints apply yet. ${resume} Or proceed with your own judgment.`
+  const lines = [`Ruling ${value.rulingId} (consultation ${value.consultation}): ${value.summary ?? ''}`]
   if (value.constraints.length > 0) {
     lines.push('', 'Binding constraints:')
     for (const [index, constraint] of value.constraints.entries()) {
@@ -192,6 +199,10 @@ export function apply(ctx: Context): void {
     parameters: {
       question: { type: 'string', required: true, description: 'The concrete design question, including the change you intend.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Paths or component names the question concerns.' },
+      continue: {
+        type: 'string',
+        description: 'Consultation id from an earlier consult_architect result, to ask that architect a follow-up; omit to start a new consultation.',
+      },
     },
     output: {
       schema: CONSULT_OUTPUT,
@@ -201,7 +212,13 @@ export function apply(ctx: Context): void {
       if (args.question.trim().length === 0) throw new Error('question must be a non-empty string')
       const worker = exec.agent
       if (worker === undefined) throw new Error('consult_architect requires a calling agent')
-      const result = await ctx.architecture.consult({ worker, question: args.question, scope: args.scope ?? [], signal: exec.signal })
+      const result = await ctx.architecture.consult({
+        worker,
+        question: args.question,
+        scope: args.scope ?? [],
+        signal: exec.signal,
+        ...args.continue === undefined ? {} : { continue: brandString<SessionId>(args.continue) },
+      })
       const cwd = worker.session.header.cwd
       if (result.kind === 'ruling' && cwd !== undefined) pending.set(exec.token, { cwd, workerSession: worker.id, result })
       return consultValue(result)

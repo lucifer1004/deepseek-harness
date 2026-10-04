@@ -5,11 +5,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { canonicalizeForWrite, isProtected, writeTarget, type WriteCall } from '../src/guard.ts'
 import { matchSources } from '../src/index-builder.ts'
 import { declaredMainBranch, ManifestError, parseManifest, withMainBranch } from '../src/manifest.ts'
 import { locateCheckout } from '../src/repository.ts'
 import { githubSlug, hashSection, indexSections } from '../src/sections.ts'
+import { foldConsultation, routeOf } from '../src/thread.ts'
 import type { SourcePath } from '../src/types.ts'
 
 const cleanups: string[] = []
@@ -175,5 +177,35 @@ describe('guard helpers', () => {
     expect(isProtected('/r/.architecture/rulings/x.json', paths)).toBe(true)
     expect(isProtected('/r/.architecture-other/x', paths)).toBe(false)
     expect(isProtected('/r/b.md', paths)).toBe(false)
+  })
+})
+
+describe('foldConsultation', () => {
+  const question = (rulingId: string) => ({
+    type: 'user/message', data: { role: 'user', content: [], source: { kind: 'architecture', rulingId } },
+  })
+  const submit = { type: 'tool/call', data: { name: 'submit_ruling' } }
+
+  it('keeps the pending id until a submission follows it, and reads the route once', () => {
+    const route = { type: 'architecture/consultation', data: { version: 1, route: { reasoningEffort: 'high' } } }
+    const events = [route, question('r1'), { type: 'tool/call', data: { name: 'read' } }] as never
+    expect(foldConsultation(events, 'submit_ruling')).toEqual({ route: { reasoningEffort: 'high' }, pendingRulingId: 'r1' })
+    expect(foldConsultation([route, question('r1'), submit] as never, 'submit_ruling')).toEqual({ route: { reasoningEffort: 'high' }, pendingRulingId: undefined })
+    // Other messages, such as an appeal decision or a user reminder, open no turn.
+    const other = [
+      route, question('r1'), submit,
+      { type: 'user/message', data: { role: 'user', content: [], source: { kind: 'architecture', appealId: 'a1' } } },
+      { type: 'user/message', data: { role: 'user', content: [], source: { kind: 'user' } } },
+    ] as never
+    expect(foldConsultation(other, 'submit_ruling')?.pendingRulingId).toBeUndefined()
+  })
+
+  it('reports no consultation for a log without its route', () => {
+    expect(foldConsultation([question('r1')] as never, 'submit_ruling')).toBeUndefined()
+  })
+
+  it('records only the route fields that are set', () => {
+    expect(routeOf({})).toEqual({})
+    expect(routeOf({ provider: 'p', model: 'm', reasoningEffort: ReasoningEffortId('low') })).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'low' })
   })
 })

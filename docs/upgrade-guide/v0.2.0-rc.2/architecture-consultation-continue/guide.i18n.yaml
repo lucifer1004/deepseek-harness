@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.0-rc.2/architecture-consultation-continue/guide.md
+/:
+  en: 8a18345edb54f6fb
+  zh: 51f25ff759de5365
+/consult-architect-results-name-a-consultation-that-can-be-continued:
+  en: a97aeb13f8f799db
+  zh: a5aa102a65359be5
+/consult-architect-results-name-a-consultation-that-can-be-continued/change:
+  en: a0be8fc795d050ad
+  zh: 9288aa11ba88ee6b
+/consult-architect-results-name-a-consultation-that-can-be-continued/migration:
+  en: 0f025fec740182ba
+  zh: dc4c2eb6e94bc295

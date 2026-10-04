@@ -24,8 +24,8 @@
   en: 8963d56e2f648d7c
   zh: cd9565b09af0ca4c
 /deepseek-ai-dsh-experimental-tool-architecture/use-this-package/what-success-and-failure-look-like:
-  en: cafffbbb79199df7
-  zh: b8041a0fe8b432e5
+  en: 64bc740f7d79deb6
+  zh: f404aa231163b1b0
 /deepseek-ai-dsh-experimental-tool-architecture/understand-the-implementation:
   en: 0da270b832229b8f
   zh: 3aadf768d471f0aa
@@ -39,14 +39,14 @@
   en: 6b3f7fe18238bd1b
   zh: 281149664412af10
 /deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/what-the-model-sees:
-  en: a1246851dbd635b6
-  zh: ea64858d377e5fb3
+  en: 364841f9794e0c86
+  zh: 456c66937f1eb59b
 /deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/token-effect:
-  en: 51a12fe3cb3a0dd6
-  zh: ec80e621df7e9bb2
+  en: bc2cb3cb949b8cce
+  zh: 4a90475a1125219e
 /deepseek-ai-dsh-experimental-tool-architecture/model-experience/worker-and-architect-tools/kv-cache-effect:
-  en: 69765a0ffafd9d16
-  zh: eac3b16cf0dc0fb0
+  en: 45cb4c4fe3e12c9c
+  zh: c2d7fc73954813b8
 /deepseek-ai-dsh-experimental-tool-architecture/known-limitations-and-deferred-work:
   en: 5034856100c5d1b6
   zh: 060171c4d78e4f10

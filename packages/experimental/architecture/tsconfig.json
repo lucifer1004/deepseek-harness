@@ -13,6 +13,7 @@
     { "path": "../../core/agent" },
     { "path": "../../core/scope" },
     { "path": "../../core/session" },
+    { "path": "../../session-query/session-query" },
     { "path": "../../core/system-prompt" },
     { "path": "../../llm/llm" },
     { "path": "../../core/tools" },

@@ -31,6 +31,8 @@ This workspace keeps its architecture in committed documents. Before a change th
 
 A Ruling's constraints are binding: follow them even when a local shortcut looks easier. Unresolved points are not constraints; decide them yourself or ask the user.
 
+Each result names its consultation. To follow up, narrow a question, or retry after a timeout, call `consult_architect` again with `continue` set to that consultation: the architect keeps what it has already read, and a consultation can be continued any number of times.
+
 When you have concrete evidence that a constraint is wrong for this change, call `appeal_ruling` with the Ruling id, your reason, and the evidence. The constraint stays binding until the user decides; continue work it does not affect, or stop and wait.
 
 Architecture documents are read-only for you. Do not edit them with file tools or shell commands.

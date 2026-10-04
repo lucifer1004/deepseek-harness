@@ -201,6 +201,23 @@ describe('architect tools', () => {
 })
 
 describe('consult_architect', () => {
+  it('passes a continued consultation to the service and tells the worker how to continue after a timeout', async () => {
+    const { ctx, repo } = await boot([
+      toolCallResponse('w1', 'consult_architect', { question: 'Narrower?', continue: 'architect-7' }),
+      textResponse('worker done'),
+    ])
+    const consult = vi.spyOn(ctx.architecture, 'consult').mockResolvedValue({
+      kind: 'timeout', id: brandString<RulingId>('ruling-7'), session: brandString<SessionId>('architect-7'),
+    })
+    const worker = await agent(ctx, repo, 'worker', 'coding')
+    const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
+    worker.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await worker.whenIdle()
+    expect(consult).toHaveBeenCalledWith(expect.objectContaining({ question: 'Narrower?', continue: 'architect-7' }))
+    const result = worker.session.snapshotEvents().find(event => event.type === 'tool/result')
+    expect(JSON.stringify(result?.data)).toContain('To continue, call consult_architect with continue: \\"architect-7\\"; its next Ruling is ruling-7.')
+  })
+
   it('returns the validated Ruling to the worker model', async () => {
     const submission = {
       summary: 'Use the store.',
@@ -220,7 +237,7 @@ describe('consult_architect', () => {
 
     const result = worker.session.snapshotEvents().find(event => event.type === 'tool/result')
     const text = JSON.stringify(result?.data)
-    expect(text).toMatch(/Ruling ruling-[0-9a-f-]+: Use the store\./)
+    expect(text).toMatch(/Ruling ruling-[0-9a-f-]+ \(consultation architect-[0-9a-f-]+\): Use the store\./)
     expect(text).toContain('Binding constraints:\\n1. Persist through the store. (design/arch.md#storage)')
     expect(text).toContain('Unresolved, not binding:\\n- Is caching allowed?\\n- Use YAML. (no citation to an architecture section)')
     expect(adapter.requests[0]?.tools?.map(tool => tool.name).sort()).toEqual(['appeal_ruling', 'consult_architect', 'read', 'write'])
@@ -235,7 +252,7 @@ describe('consult_architect', () => {
     expect(record?.status).toBe('issued')
     expect(record?.stale).toBe(false)
     expect(record?.revision).toBe(snapshot.revision)
-    expect(text).toContain(`Ruling ${record?.ruling.id}:`)
+    expect(text).toContain(`Ruling ${record?.ruling.id} (consultation ${record?.architectSession}):`)
   })
 
   it('files an appeal, delivers the user decision to the worker, and records the outcome', async () => {
@@ -322,9 +339,16 @@ describe('consult_architect', () => {
   })
 
   it('renders a consultation without a Ruling', () => {
-    expect(WorkerTools.renderConsultation({ status: 'timeout', rulingId: 'r1', constraints: [], unresolved: [], proposedEdits: [] })).toMatch(/did not answer in time \(r1\)/)
-    expect(WorkerTools.renderConsultation({ status: 'no-submission', rulingId: 'r2', constraints: [], unresolved: [], proposedEdits: [] })).toMatch(/ended without a Ruling \(r2\)/)
-    expect(WorkerTools.renderConsultation({ status: 'ruling', rulingId: 'r3', constraints: [], unresolved: [], proposedEdits: [] })).toBe('Ruling r3: \n\nNo binding constraints.')
+    const empty = { constraints: [], unresolved: [], proposedEdits: [] }
+    expect(WorkerTools.renderConsultation({ status: 'timeout', rulingId: 'r1', consultation: 'architect-1', ...empty })).toBe(
+      'The architect did not answer in time (consultation architect-1). No constraints apply yet. '
+      + 'To continue, call consult_architect with continue: "architect-1"; its next Ruling is r1. Or proceed with your own judgment.',
+    )
+    expect(WorkerTools.renderConsultation({ status: 'no-submission', rulingId: 'r2', consultation: 'architect-2', ...empty })).toBe(
+      'The architect ended without a Ruling (consultation architect-2). No constraints apply yet. '
+      + 'To continue, call consult_architect with continue: "architect-2"; its next Ruling is r2. Or proceed with your own judgment.',
+    )
+    expect(WorkerTools.renderConsultation({ status: 'ruling', rulingId: 'r3', consultation: 'architect-3', ...empty })).toBe('Ruling r3 (consultation architect-3): \n\nNo binding constraints.')
   })
 
   it('tells the worker which sections a Ruling proposes to change, and that the current text governs', () => {
@@ -338,7 +362,7 @@ describe('consult_architect', () => {
       },
     })
     expect(value.proposedEdits).toEqual([{ section: 'design/arch.md#storage', rationale: 'name the port' }])
-    expect(WorkerTools.renderConsultation(value)).toBe('Ruling r4: s\n\nNo binding constraints.\n\n'
+    expect(WorkerTools.renderConsultation(value)).toBe('Ruling r4 (consultation a): s\n\nNo binding constraints.\n\n'
       + 'Proposed record changes, waiting for the user to review and apply:\n- design/arch.md#storage: name the port\n'
       + 'Until the user applies one and it is committed on the main branch or accepted, the current text governs.')
   })

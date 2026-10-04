@@ -50,7 +50,7 @@ kind: "package-reference"
 
 ### 成功与失败的表现
 
-`consult_architect` 返回 `status: 'ruling'`，附带摘要、带已校验引用的约束、未决点，以及列出裁定提议改写的每个章节及其理由的 `proposedEdits`；或返回不含约束的 `status: 'timeout'` 或 `'no-submission'`。空问题、没有 agent 的调用、没有工作目录的会话，以及没有 manifest 的仓库都会使调用失败。`appeal_ruling` 返回申诉 id；理由为空、Ruling 没有记录或 Ruling 发给了其他会话时失败。对没有 manifest 的工作区，`architecture_index` 返回 `hasManifest: false`，并渲染为 `COLD_START_GUIDANCE`：调查代码与现有文档，提出一份声明 checkout 当前分支的 manifest 和一份精简的首个文档，在用户同意后写入它们。该值的 `checkout` 给出版本控制系统、该 checkout 是否为主 checkout，以及它当前所在的分支或书签，渲染时列在指引之后。位于 git 或 jj checkout 之外的会话既看不到 worker 工具，也看不到 worker 指引。引用不是 `path#anchor` 或不对应任何已索引章节时，`architecture_read` 失败。服务拒绝编辑时（包括 `expectedHash` 已过期），`architecture_edit` 以 `architecture_edit refused: <reason>` 失败。
+`consult_architect` 返回 `status: 'ruling'`，附带摘要、带已校验引用的约束、未决点，以及列出裁定提议改写的每个章节及其理由的 `proposedEdits`；或返回不含约束的 `status: 'timeout'` 或 `'no-submission'`。每个值都给出其 `consultation`；以它作为 `continue` 再次调用，会为新的一轮恢复同一个架构师，worker 可以接续任意多次；该咨询不是调用方会话发起的或仍在运行时，调用会被拒绝而失败。空问题、没有 agent 的调用、没有工作目录的会话，以及没有 manifest 的仓库都会使调用失败。`appeal_ruling` 返回申诉 id；理由为空、Ruling 没有记录或 Ruling 发给了其他会话时失败。对没有 manifest 的工作区，`architecture_index` 返回 `hasManifest: false`，并渲染为 `COLD_START_GUIDANCE`：调查代码与现有文档，提出一份声明 checkout 当前分支的 manifest 和一份精简的首个文档，在用户同意后写入它们。该值的 `checkout` 给出版本控制系统、该 checkout 是否为主 checkout，以及它当前所在的分支或书签，渲染时列在指引之后。位于 git 或 jj checkout 之外的会话既看不到 worker 工具，也看不到 worker 指引。引用不是 `path#anchor` 或不对应任何已索引章节时，`architecture_read` 失败。服务拒绝编辑时（包括 `expectedHash` 已过期），`architecture_edit` 以 `architecture_edit refused: <reason>` 失败。
 
 -----
 
@@ -87,15 +87,15 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-worker 看到 `consult_architect(question, scope?)` 和一段导出为 `WORKER_POLICY` 的指引：在转移职责、修改公共接口或数据格式、引入依赖或模式之前进行咨询，约束具有约束力而未决点没有；当某条约束对本次修改不正确时，带着具体证据调用 `appeal_ruling(rulingId, reason, evidence?)`。申诉结果为 `Appeal <id> filed against Ruling <id>. The Ruling stays binding until the user decides; the decision arrives as a message.`结果文本以 `Ruling <id>: <summary>` 开头，随后列出带 `path#anchor` 引用的 `Binding constraints:`，以及带原因的 `Unresolved, not binding:`。架构师看到三个架构工具和一段导出为 `ARCHITECT_POLICY` 的指引：不修改代码，只在用户同意后编辑，并为每条要求引用章节。
+worker 看到 `consult_architect(question, scope?, continue?)` 和一段导出为 `WORKER_POLICY` 的指引：在转移职责、修改公共接口或数据格式、引入依赖或模式之前进行咨询，约束具有约束力而未决点没有；每个结果都给出一个咨询，可以用 `continue` 接续它来追问、缩小问题或在超时后重试；当某条约束对本次修改不正确时，带着具体证据调用 `appeal_ruling(rulingId, reason, evidence?)`。申诉结果为 `Appeal <id> filed against Ruling <id>. The Ruling stays binding until the user decides; the decision arrives as a message.`结果文本以 `Ruling <id> (consultation <id>): <summary>` 开头，随后列出带 `path#anchor` 引用的 `Binding constraints:`，以及带原因的 `Unresolved, not binding:`。超时的结果为 `The architect did not answer in time (consultation <id>). No constraints apply yet. To continue, call consult_architect with continue: "<id>"; its next Ruling is <ruling id>. Or proceed with your own judgment.`；未提交即结束的一轮在 `The architect ended without a Ruling` 之后是相同的文本。架构师看到三个架构工具和一段导出为 `ARCHITECT_POLICY` 的指引：不修改代码，只在用户同意后编辑，并为每条要求引用章节。
 
 #### Token 影响
 
-worker 指引为每个 worker 请求增加约 170 token，`consult_architect` 与 `appeal_ruling` schema 约 230 token。一次申诉结果约 40 token。一份 Ruling 结果约 20 token 加上其陈述与引用；有修改提议时再加约 40 token 及每条提议的章节与理由，提议文本本身不进入 worker 的上下文。架构师指引为每个架构师请求增加约 200 token，三个 schema 约 400 token；在 dsh 仓库上，`architecture_index` 列出约 2,400 个章节。
+worker 指引为每个 worker 请求增加约 220 token，`consult_architect` 与 `appeal_ruling` schema 约 260 token。一次申诉结果约 40 token。一份 Ruling 结果约 20 token 加上其陈述与引用；有修改提议时再加约 40 token 及每条提议的章节与理由，提议文本本身不进入 worker 的上下文。架构师指引为每个架构师请求增加约 200 token，三个 schema 约 400 token；在 dsh 仓库上，`architecture_index` 列出约 2,400 个章节。
 
 #### KV Cache 影响
 
-指引与 schema 是挂载时注册的固定文本，因此留在可复用前缀中。工具结果追加在其后。
+指引与 schema 是挂载时注册的固定文本，因此留在可复用前缀中。工具结果追加在其后。接续的咨询会恢复架构师会话，其下一个请求延续该会话已缓存的前缀，而不是新开一个。
 
 ## 已知限制与延期工作
 

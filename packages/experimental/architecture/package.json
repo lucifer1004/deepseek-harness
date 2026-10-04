@@ -52,6 +52,7 @@
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-scope": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-query": "workspace:*",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*"
@@ -68,6 +69,8 @@
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-scope": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*",
+    "@deepseek-ai/dsh-session-query": "workspace:*",
     "@deepseek-ai/dsh-settings": "workspace:*",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
     "@deepseek-ai/dsh-subprocess-local": "workspace:*",
@@ -75,5 +78,10 @@
     "@deepseek-ai/dsh-tools": "workspace:*",
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-session-query": {
+      "optional": true
+    }
   }
 }
