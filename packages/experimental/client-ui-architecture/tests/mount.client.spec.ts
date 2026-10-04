@@ -107,7 +107,7 @@ interface FixtureOptions {
   readonly fail?: boolean
   /** Provide the settings client, which the profile group of the Settings view needs. */
   readonly settings?: boolean
-  readonly workspaces?: Array<{ workspaceId: WorkspaceId; title: string }>
+  readonly workspaces?: Array<{ workspaceId: WorkspaceId; title: string; sessionIds?: string[] }>
 }
 
 async function fixture(options: FixtureOptions = {}) {
@@ -157,10 +157,28 @@ async function fixture(options: FixtureOptions = {}) {
   }
   ctx.provide('workspaces', { list })
   const create = vi.fn(async () => 'session-new')
-  ctx.provide('sessions', { create })
+  // The Session in the main view, which a global panel covers without releasing.
+  let byId: Record<string, { id: string; retainedBy: Record<string, number> }> = {}
+  // Another retained Session, outside the main view, never decides the Workspace.
+  const showSession = (id: string | undefined): void => {
+    const other = { 's-1': { id: 's-1', retainedBy: { sidebar: 1 } } }
+    byId = id === undefined ? other : { ...other, [id]: { id, retainedBy: { mainView: 1 } } }
+  }
+  ctx.provide('sessions', { create, list: { getSnapshot: () => ({ byId }) } })
   const openSession = vi.fn()
   ctx.provide('uiWorkspace', { openSession })
-  ctx.provide('layout', {})
+  let panel: { activePanelId: string | null } = { activePanelId: null }
+  const panelListeners = new Set<() => void>()
+  const selectPanel = (activePanelId: string | null): void => {
+    panel = { activePanelId }
+    for (const listener of panelListeners) listener()
+  }
+  ctx.provide('layout', {
+    panelInfo: {
+      getSnapshot: () => panel,
+      subscribe: (listener: () => void) => { panelListeners.add(listener); return () => { panelListeners.delete(listener) } },
+    },
+  })
   ctx.provide('locale', new LocaleRuntime(ctx))
   await ctx.plugin(SlotRegistry)
   ctx.slots.register({ name: 'root', children: {
@@ -169,7 +187,9 @@ async function fixture(options: FixtureOptions = {}) {
     'plugins.row.config': { kind: 'keyed', scope: 'root' },
   } } as never, () => null)
   if (options.fail === true) vi.spyOn(ctx.slots, 'inject').mockImplementationOnce(() => { throw new Error('slot failed') })
-  return { ctx, unmount, architecture, select, create, openSession, setWorkspaces, listeners, configForms, modelCatalog }
+  return {
+    ctx, unmount, architecture, select, create, openSession, setWorkspaces, listeners, configForms, modelCatalog, showSession, selectPanel,
+  }
 }
 
 /** Narrow the erased registry payload before exercising its registered actions. */
@@ -285,6 +305,38 @@ describe('mountArchitecture', () => {
     expect(actions.hooks.architectureDashboard.getSnapshot().workspaceId).toBeNull()
     b.setWorkspaces([{ workspaceId: WS2, title: 'other' }])
     expect(actions.hooks.architectureDashboard.getSnapshot().workspaceId).toBe(WS2)
+  })
+
+  it('follows the Workspace of the Session it is opened from, and keeps a pick made while open', async () => {
+    const b = await fixture({ workspaces: [{ workspaceId: WS, title: 'repo', sessionIds: ['s-1'] }, { workspaceId: WS2, title: 'other', sessionIds: ['s-2'] }] })
+    await b.ctx.plugin({ inject: [...inject], apply: ctx => mountArchitecture(ctx, REMOTE) })
+    const actions = injected(b.ctx)
+    const followed = (): WorkspaceId | null => actions.hooks.architectureDashboard.getSnapshot().workspaceId
+    expect(followed()).toBe(WS)
+
+    b.showSession('s-2')
+    b.selectPanel('architecture')
+    expect(followed()).toBe(WS2)
+    // A pick while the panel stays open is kept, and other panel changes leave it alone.
+    actions.selectWorkspace(WS)
+    b.selectPanel('architecture')
+    expect(followed()).toBe(WS)
+
+    b.selectPanel(null)
+    b.selectPanel('plugins')
+    b.showSession('s-2')
+    b.selectPanel('architecture')
+    expect(followed()).toBe(WS2)
+
+    // A Session no Workspace lists, or no Session at all, leaves the dashboard where it was.
+    b.selectPanel(null)
+    b.showSession('s-unlisted')
+    b.selectPanel('architecture')
+    expect(followed()).toBe(WS2)
+    b.selectPanel(null)
+    b.showSession(undefined)
+    b.selectPanel('architecture')
+    expect(followed()).toBe(WS2)
   })
 
   it('mounts the generated contribution through the browser entry and renders the sidebar glyph', async () => {

@@ -17,6 +17,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { ArchitecturePage, type ArchitecturePageInjected, type WorkspaceChoice } from './ArchitecturePage.tsx'
 import { ArchitectureIcon } from './ArchitectureIcon.tsx'
 import { ArchitectModelField } from './SettingsView.tsx'
@@ -64,6 +65,17 @@ function workspaceChoices(ctx: Context): HostObservable<readonly WorkspaceChoice
   }
 }
 
+/**
+ * The Workspace of the Session in the main view, which stays retained while a global panel covers it.
+ * @param ctx - Client Context with `sessions` and `workspaces`.
+ * @returns the Workspace listing that Session, or undefined when none is shown or no Workspace lists it.
+ */
+function mainViewWorkspace(ctx: Context): WorkspaceId | undefined {
+  const session = Object.values(ctx.sessions.list.getSnapshot().byId).find(row => (row.retainedBy.mainView ?? 0) > 0)
+  if (session === undefined) return undefined
+  return ctx.workspaces.list.getSnapshot().items.find(item => item.sessionIds.includes(session.id))?.workspaceId
+}
+
 function registerUi(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'client-ui-architecture: dictionaries')
   const t = ctx.locale.bind(NS)
@@ -77,6 +89,18 @@ function registerUi(ctx: Context): void {
   }
   ctx.effect(() => workspaces.subscribe(pickFirst), 'client-ui-architecture: default workspace')
   pickFirst()
+  // Opening the panel follows the Workspace of the Session it was opened from; a pick made while it is open stays.
+  let panelActive = false
+  const followSession = (): void => {
+    const active = ctx.layout.panelInfo.getSnapshot().activePanelId === PANEL_ID
+    if (active && !panelActive) {
+      const workspaceId = mainViewWorkspace(ctx)
+      if (workspaceId !== undefined) dashboard.select(workspaceId)
+    }
+    panelActive = active
+  }
+  ctx.effect(() => ctx.layout.panelInfo.subscribe(followSession), 'client-ui-architecture: follow the opening Session')
+  followSession()
   // The profile group needs the settings client; without it the Settings view shows only this repository's group.
   const configForms = ctx.get('configForms')
   const architectModel = configForms === undefined
@@ -157,7 +181,10 @@ function registerUi(ctx: Context): void {
  */
 export async function mountArchitecture(ctx: Context, contribution: TypertRemoteContribution): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(contribution)
-  const ui = ctx.inject(['remote.architecture', 'remote.agentPresets', 'remote.session', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace'], registerUi)
+  const ui = ctx.inject(
+    ['remote.architecture', 'remote.agentPresets', 'remote.session', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace', 'layout'],
+    registerUi,
+  )
   try { await ui } catch (error) { await ui.dispose(); await disposeRemote(); throw error }
   return async () => { await ui.dispose(); await disposeRemote() }
 }
