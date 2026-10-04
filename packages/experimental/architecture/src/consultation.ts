@@ -20,7 +20,25 @@ import type { RulingId } from './types.ts'
 /** Model-facing name of the architect's answer tool inside a consultation. */
 export const SUBMIT_RULING_TOOL = 'submit_ruling'
 
-/** Instruction appended to the consultation agent's system prompt. */
+/**
+ * The time budget the architect is given, from the run's own bounds.
+ * @param timeoutMs - the hard stop.
+ * @returns the prompt paragraph.
+ */
+export function consultationBudget(timeoutMs: number): string {
+  return `You have ${String(Math.floor(timeoutMs / 1000))} seconds for this consultation, after which it ends with no answer. Read only what the question needs, and call \`submit_ruling\` before the time is up; an answer with open points in \`unresolved\` is worth more than none.`
+}
+
+/**
+ * The notice the architect receives at `nudgeMs`.
+ * @param remainingMs - milliseconds left before the hard stop.
+ * @returns the message text.
+ */
+export function consultationDeadlineNotice(remainingMs: number): string {
+  return `About ${String(Math.ceil(remainingMs / 1000))} seconds remain. Stop reading and call \`submit_ruling\` now with what you have; put every point you could not settle in \`unresolved\`.`
+}
+
+/** Instruction appended to the consultation agent's system prompt, before its time budget. */
 export const CONSULTATION_INSTRUCTION = [
   'You are answering one consultation from a worker agent. Read the architecture sources and the code you need, then call `submit_ruling` exactly once.',
   'Put a requirement in `constraints` only when an architecture section states or directly implies it, and cite every such section as `path#anchor` from `architecture_index`. The host drops a citation that does not match the section committed on the main branch, and turns its constraint into an unresolved point.',
@@ -48,6 +66,8 @@ export interface ConsultationRun {
   readonly model: Pick<AgentOptions, 'provider' | 'model' | 'reasoningEffort'> | undefined
   /** Milliseconds to wait for a submission. */
   readonly timeoutMs: number
+  /** Milliseconds into the run at which the architect is told to submit now; less than `timeoutMs`. */
+  readonly nudgeMs: number
   /** Worker-side cancellation, such as the consulting tool call's signal. */
   readonly signal: AbortSignal
 }
@@ -168,7 +188,12 @@ export async function runConsultation(run: ConsultationRun): Promise<Consultatio
         },
       }))
       agentCtx.tools.guard(exec => submission === undefined ? undefined : `the ruling is already submitted, so ${exec.name} is not executed`)
-      agentCtx.systemPrompt.section({ name: `tool:${SUBMIT_RULING_TOOL}`, order: agentCtx.systemPrompt.getSectionOrder('STRUCTURED_OUTPUT'), text: CONSULTATION_INSTRUCTION })
+      agentCtx.systemPrompt.section({
+        name: `tool:${SUBMIT_RULING_TOOL}`,
+        order: agentCtx.systemPrompt.getSectionOrder('STRUCTURED_OUTPUT'),
+        // The budget comes from the same run bounds that arm the timers below.
+        text: `${CONSULTATION_INSTRUCTION}\n\n${consultationBudget(run.timeoutMs)}`,
+      })
     },
   })
   const architect = handle.agent
@@ -176,10 +201,17 @@ export async function runConsultation(run: ConsultationRun): Promise<Consultatio
   const stop = AbortSignal.any([run.signal, deadline])
   const onStop = (): void => { architect.cancel({ kind: 'parent' }) }
   stop.addEventListener('abort', onStop, { once: true })
+  // The notice is steered into the architect's own Session, so its log records it. A submission concludes the turn,
+  // and the timer is cleared once the turn ends, so no notice follows a submission.
+  const nudge = setTimeout(() => {
+    const text = consultationDeadlineNotice(run.timeoutMs - run.nudgeMs)
+    architect.steer(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'architecture', deadline: true } }))
+  }, run.nudgeMs)
   try {
     architect.followup(createUserMessage({ content: [{ type: 'text', text: run.prompt }], source: { kind: 'user' } }))
     await architect.whenIdle()
   } finally {
+    clearTimeout(nudge)
     stop.removeEventListener('abort', onStop)
     await handle.dispose()
   }

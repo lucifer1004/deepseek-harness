@@ -89,12 +89,21 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** An adjudication message delivered to a worker Session. */
-export interface ArchitectureMessageSource {
-  readonly kind: 'architecture'
-  /** Appeal whose decision the message carries. */
-  readonly appealId: AppealId
-}
+/**
+ * A message the architecture service writes into a Session: an adjudication delivered to a worker, or the deadline
+ * notice sent to a consultation's architect.
+ */
+export type ArchitectureMessageSource =
+  | {
+    readonly kind: 'architecture'
+    /** Appeal whose decision the message carries. */
+    readonly appealId: AppealId
+  }
+  | {
+    readonly kind: 'architecture'
+    /** The consultation's submit-now notice. */
+    readonly deadline: true
+  }
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -230,6 +239,8 @@ export class ArchitectureService extends Service {
     gitTimeoutMs: z.natural().min(1).default(10_000).description('Milliseconds a git command may run before it is terminated.'),
     maxSourceBytes: z.natural().min(1).default(1_048_576).description('Byte cap on one manifest source read while indexing.'),
     consultTimeoutMs: z.natural().min(1).default(300_000).description('Milliseconds a consultation waits for the architect to submit a Ruling.'),
+    consultNudgeMs: z.natural().min(1).default(240_000)
+      .description('Milliseconds into a consultation at which the architect is told to submit now; less than `consultTimeoutMs`.'),
     architectProvider: z.string().volatile().description('Provider route of the consulted architect; unset runs it on the consulting worker\'s model.'),
     architectModel: z.string().volatile().description('Model of the consulted architect, used together with `architectProvider`.'),
     architectReasoningEffort: z.string().volatile().description('Reasoning effort of the consulted architect; unset keeps the model\'s default.'),
@@ -255,6 +266,9 @@ export class ArchitectureService extends Service {
       }
     }
     if (config.mainBranch?.trim().length === 0) throw new Error('architecture: mainBranch must be a non-empty branch name')
+    if (config.consultNudgeMs >= config.consultTimeoutMs) {
+      throw new Error(`architecture: consultNudgeMs (${config.consultNudgeMs}) must be less than consultTimeoutMs (${config.consultTimeoutMs})`)
+    }
     this.config = config
     // The service registers `submit_ruling` on its own consultation agents.
     this.architectTools = new Set([...config.architectTools, SUBMIT_RULING_TOOL])
@@ -491,6 +505,7 @@ export class ArchitectureService extends Service {
       tools: this.config.architectTools,
       model: this.architectModel(),
       timeoutMs: this.config.consultTimeoutMs,
+      nudgeMs: this.config.consultNudgeMs,
       signal: request.signal,
     })
     if (outcome.kind !== 'submitted') return { kind: outcome.kind, id: outcome.id, session: outcome.session }

@@ -207,9 +207,61 @@ describe('ArchitectureService.consult', () => {
   })
 
   it('cancels the architect at the consultation deadline', async () => {
-    const { ctx, worker } = await boot(['hang'], { consultTimeoutMs: 50 })
+    const { ctx, worker } = await boot(['hang'], { consultTimeoutMs: 50, consultNudgeMs: 40 })
     const result = await ctx.architecture.consult({ worker, question: 'q', scope: [], signal: new AbortController().signal })
     expect(result.kind).toBe('timeout')
+  })
+
+  it('states the time budget, and tells a still-working architect to submit before the deadline', async () => {
+    // The architect is still reading when the notice is due; it sees the notice at its next step and submits.
+    const { ctx, adapter, worker } = await boot([
+      toolCallResponse('r1', 'slow_read', {}),
+      toolCallResponse('s1', SUBMIT_RULING_TOOL, submission),
+      textResponse('done'),
+    ], { consultTimeoutMs: 60_000, consultNudgeMs: 30, architectTools: ['read', 'web_search', 'slow_read'] })
+    // A slow tool keeps the architect working past the notice, so the step after it claims the notice.
+    ctx.effect(() => ctx.tools.register({
+      name: 'slow_read',
+      description: 'fixture tool that takes longer than the notice delay',
+      parameters: { type: 'object', properties: {}, additionalProperties: true },
+      output: { schema: { type: 'string' }, render: () => [{ type: 'text', text: 'read' }] },
+      execute: () => new Promise<string>(resolve => setTimeout(() => { resolve('read') }, 80)),
+    }))
+    const result = await ctx.architecture.consult({ worker, question: 'q', scope: [], signal: new AbortController().signal })
+    expect(result.kind).toBe('ruling')
+    const [first, second] = adapter.requests
+    // A loop-built request carries the system prompt as its leading system-role message.
+    expect(first?.messages[0]?.role).toBe('system')
+    expect(JSON.stringify(first?.messages[0])).toContain('You have 60 seconds for this consultation')
+    expect(JSON.stringify(first?.messages)).not.toContain('seconds remain')
+    expect(JSON.stringify(second?.messages)).toContain('About 60 seconds remain. Stop reading and call `submit_ruling` now')
+  })
+
+  it('sends no deadline notice once the architect has submitted, even with a slow call in the same response', async () => {
+    // The submission and a slow sibling call share one response, so the turn runs on past the notice delay.
+    const both: Script[number] = [
+      ...toolCallResponse('s1', SUBMIT_RULING_TOOL, submission).filter(chunk => chunk.type !== 'finish'),
+      ...toolCallResponse('r1', 'slow_read', {}).map(chunk => 'index' in chunk ? { ...chunk, index: chunk.index + 1 } : chunk),
+    ] as never
+    const { ctx, adapter, worker } = await boot([both, textResponse('done')], {
+      consultTimeoutMs: 60_000, consultNudgeMs: 20, architectTools: ['read', 'web_search', 'slow_read'],
+    })
+    ctx.effect(() => ctx.tools.register({
+      name: 'slow_read',
+      description: 'fixture tool that takes longer than the notice delay',
+      parameters: { type: 'object', properties: {}, additionalProperties: true },
+      output: { schema: { type: 'string' }, render: () => [{ type: 'text', text: 'read' }] },
+      execute: () => new Promise<string>(resolve => setTimeout(() => { resolve('read') }, 80)),
+    }))
+    const result = await ctx.architecture.consult({ worker, question: 'q', scope: [], signal: new AbortController().signal })
+    expect(result.kind).toBe('ruling')
+    // Submitting concludes the turn, so the slow sibling call finishes without another request.
+    expect(adapter.requests).toHaveLength(1)
+    expect(JSON.stringify(adapter.requests)).not.toContain('seconds remain')
+  })
+
+  it('refuses a deadline notice that is not before the hard stop', async () => {
+    await expect(boot([], { consultTimeoutMs: 100, consultNudgeMs: 100 })).rejects.toThrow('consultNudgeMs (100) must be less than consultTimeoutMs (100)')
   })
 
   it('cancels the architect and rejects when the worker cancels during the architect turn', async () => {

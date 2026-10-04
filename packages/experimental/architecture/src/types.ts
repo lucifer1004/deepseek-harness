@@ -22,6 +22,7 @@ export interface Config {
   maxSourceBytes: number
   /** Milliseconds a consultation waits for the architect to submit a Ruling. */
   consultTimeoutMs: number
+  consultNudgeMs: number
   /** Provider route of the consulted architect; unset runs it on the consulting worker's model. Read at each consultation. */
   architectProvider: Volatile<string | undefined>
   /** Model of the consulted architect, used together with `architectProvider`. Read at each consultation. */
