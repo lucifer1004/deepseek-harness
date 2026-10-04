@@ -14,7 +14,7 @@
 
 工作 Agent 的 `ConsultRequest` 在其 Session 下以隐藏子 Agent 的形式运行架构师，使用配置的架构师模型；未配置时使用工作 Agent 的模型。架构师只能使用配置的工具，并且必须调用 `submit_ruling`。服务把提交内容转换为裁定（Ruling）：只有当约束的每条引用都指向当前内容已提交到主分支或已被用户接受的已索引章节时，该约束才具有约束力。其他约束连同原因成为未决点。提交内容还可以附带修改提议，每条按指明的内容哈希替换一个已索引章节。服务按编辑规则和当前索引校验每条提议，把无效的提议连同原因转为未决点；它不写入任何提议。修改提议不约束任何工作 Agent，也不会让任何内容变得可引用。咨询从不修改记录：每次修改都由用户授权，可以在架构会话中进行，也可以在仪表盘中应用修改提议。`ConsultResult` 是附带索引修订的裁定、超时，或未提交即结束的运行。
 
-工作 Agent 的工具结果提交后，工具包在 `.architecture/rulings/` 下写入 `RulingRecord`。记录复制裁定及其修改提议、两个 Session id、索引修订、状态，以及用户已应用了哪些修改提议。工作 Agent 的日志仍是其所收到内容的权威来源；记录只是仪表盘的副本。
+工作 Agent 的工具结果提交后，工具包在 `.architecture/rulings/` 下写入 `RulingRecord`。记录复制裁定及其修改提议、两个 Session id、索引修订、状态，以及用户已应用和已不采用的修改提议；同一修改提议不会两者兼有。工作 Agent 的日志仍是其所收到内容的权威来源；记录只是仪表盘的副本，工作 Agent 永远不会收到已应用或不采用的标记。
 
 ## 申诉与接受
 
@@ -24,7 +24,7 @@
 
 ## 仪表盘
 
-仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态、引用章节是否变化以及对照当前章节的修改提议的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法在主 checkout 中声明仓库的主分支，可从仓库的本地分支或书签中选择，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“咨询”视图通过 `applyProposedEdit` Remote 方法，在主 checkout 中按编辑规则应用修改提议，并可同时接受由此产生的章节；咨询之后已变化的章节会被拒绝。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
+仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态、引用章节是否变化以及对照当前章节的修改提议的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法在主 checkout 中声明仓库的主分支，可从仓库的本地分支或书签中选择，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“咨询”视图按目标章节分组列出待处理的修改提议，即既未应用也未不采用、且其章节仍是架构师读取时哈希的提议。它通过 `applyProposedEdit` Remote 方法，在主 checkout 中按编辑规则应用修改提议，并可同时接受由此产生的章节；咨询之后已变化的章节会被拒绝。它通过 `dismissProposedEdit` Remote 方法不采用修改提议，该方法在裁定记录中把该提议标记为不采用，不写入任何架构来源。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
 
 ## 提交与 CI 检查
 
@@ -135,7 +135,7 @@ async consult(request: ConsultRequest): Promise<ConsultResult>
  * @param cwd - the worker Session's directory.
  * @param record - Ruling, Sessions, and index revision; status starts at `issued`.
  */
-async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status' | 'appliedEdits'>): Promise<void>
+async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status' | 'appliedEdits' | 'dismissedEdits'>): Promise<void>
 
 /**
  * File a worker's appeal against a recorded Ruling. The Ruling stays binding
@@ -169,9 +169,17 @@ async deliverPending(agent: Agent): Promise<void>
  * when the section changed since the architect read it. With `accept`, the section the write produced is accepted.
  * @param request - repository directory, Ruling, the edit's index in `ruling.proposedEdits`, and whether to accept.
  * @returns the written path, or the refusal; an accepted section is returned with the written result.
- * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied.
+ * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied or dismissed.
  */
 async applyProposedEdit(request: ApplyProposedEditRequest): Promise<ApplyProposedEditResult>
+
+/**
+ * Dismiss one proposed edit of a recorded Ruling, so the dashboard stops offering it. Writes only the Ruling record;
+ * the worker never sees the marker, and the edit stays a non-binding proposal.
+ * @param request - repository directory, Ruling, and the edit's index in `ruling.proposedEdits`.
+ * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied or dismissed.
+ */
+async dismissProposedEdit(request: DismissProposedEditRequest): Promise<void>
 
 /**
  * Accept a section's current content so Rulings may cite it before it is
@@ -266,6 +274,13 @@ The `architecture` Remote namespace over `ctx.architecture`, addressed by Worksp
  * @throws `architecture/failed` naming the refusal, an unknown Ruling or edit, or an edit already applied.
  */
 @Remote async applyProposedEdit( request: ArchitectureApplyEditRequest, signal: AbortSignal, ): Promise<{ readonly path: string; readonly acceptance?: Acceptance | undefined }>
+
+/**
+ * Dismiss one proposed edit of a recorded Ruling; writes only the Ruling record.
+ * @param request - Workspace, Ruling, and edit index.
+ * @throws `architecture/failed` for an unknown Ruling or edit, or an edit already applied or dismissed.
+ */
+@Remote async dismissProposedEdit(request: ArchitectureDismissEditRequest): Promise<void>
 
 /**
  * Declare the repository's main branch in its manifest, from the primary checkout.
