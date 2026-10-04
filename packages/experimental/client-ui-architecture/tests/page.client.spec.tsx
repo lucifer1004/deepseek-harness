@@ -53,6 +53,7 @@ function snapshot(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSn
       issuedAt: 0,
       status: 'appealed',
       appliedEdits: [],
+      dismissedEdits: [],
       stale: true,
     }, {
       version: 1,
@@ -63,6 +64,7 @@ function snapshot(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSn
       issuedAt: Date.now(),
       status: 'issued',
       appliedEdits: [],
+      dismissedEdits: [],
       stale: false,
     }],
     appeals: [{
@@ -157,6 +159,7 @@ function fixture(
     adjudicate: vi.fn(async () => true),
     setMainBranch: vi.fn<ArchitecturePageProps['setMainBranch']>(async () => undefined),
     applyProposedEdit: vi.fn<ArchitecturePageProps['applyProposedEdit']>(async () => undefined),
+    dismissProposedEdit: vi.fn<ArchitecturePageProps['dismissProposedEdit']>(async () => undefined),
     architectModel,
     t: makeTranslate(dictionary),
   }
@@ -246,7 +249,8 @@ describe('ArchitecturePage', () => {
     expect(screen.getByText('1 record file could not be read')).toBeTruthy()
     expect(screen.getByText('1 source · 1 section')).toBeTruthy()
     fireEvent.click(screen.getByRole('tab', { name: `${en['tab.consultations']} · 1` }))
-    expect(screen.getByText('1 edit to review')).toBeTruthy()
+    // Once in the To review heading and once on the card.
+    expect(screen.getAllByText('1 edit to review')).toHaveLength(2)
     const diagnostics = [{ path: 'a.md', message: 'x' }, { path: 'b.md', message: 'y' }] as never
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: snapshot({ problems: [{ file: 'a', message: 'b' }, { file: 'c', message: 'd' }] as never }) })
     expect(await screen.findByText('2 record files could not be read')).toBeTruthy()
@@ -330,7 +334,7 @@ describe('ArchitecturePage', () => {
     expect(screen.getByText(/ruling-2 · 刚刚 · 会话/)).toBeTruthy()
   })
 
-  it('shows proposed edits against the current section and applies them, with or without acceptance', async () => {
+  it('gathers pending edits under To review and applies them there, with or without acceptance', async () => {
     const base = snapshot()
     const first = base.rulings[0]
     if (first === undefined) throw new Error('fixture has no Ruling')
@@ -350,51 +354,111 @@ describe('ArchitecturePage', () => {
     // The arch edit's section changed, so two edits are left to review; the tab and the collapsed card count them.
     expect(screen.getByRole('tab', { name: `${zh['tab.consultations']} · 2` })).toBeTruthy()
     tab(zh['tab.consultations'])
-    expect(screen.getByText('1 条约束 · 2 个未决点')).toBeTruthy()
-    expect(screen.getByText('2 条提议待处理')).toBeTruthy()
+    const review = within(screen.getByRole('region', { name: new RegExp(`^${zh['review.title']}`) }))
+    expect(screen.getAllByText('2 条提议待处理')).toHaveLength(2)
+    // To review lists one group per section, in index order, each edit headed by its Ruling.
+    expect(review.getAllByText(/^design\/arch\.md#/).map(node => node.textContent)).toEqual(['design/arch.md#storage', 'design/arch.md#gone'])
+    expect(review.getByText('name the port')).toBeTruthy()
+    expect(review.queryByText('stale one')).toBeNull()
+    expect(review.getAllByText(/Where does persistence go\?/)).toHaveLength(2)
 
-    unfold('Where does persistence go?')
-    expect(screen.getByText(zh['ruling.proposedEdits'])).toBeTruthy()
-    expect(screen.getByText('name the port')).toBeTruthy()
-    // The section the architect read changed, so the proposal cannot be applied.
-    expect(screen.getByText(zh['ruling.proposedEdit.changed'])).toBeTruthy()
-    expect(screen.getByText(zh['ruling.proposedEdit.changedHint'])).toBeTruthy()
-    // A diff, and with it the actions, appears only when the user opens it; the section is read then.
+    // A diff, and with it the apply actions, appears only when the user opens it; the section is read then.
     expect(props.readSection).not.toHaveBeenCalled()
-    expect(screen.queryByRole('button', { name: zh['ruling.proposedEdit.apply'] })).toBeNull()
-    for (const toggle of screen.getAllByRole('button', { name: zh['ruling.proposedEdit.changes'], expanded: false })) fireEvent.click(toggle)
-    expect(await screen.findByText(zh['section.failed'])).toBeTruthy()
-    expect(await screen.findByText(/Revised\./)).toBeTruthy()
+    expect(review.queryByRole('button', { name: zh['ruling.proposedEdit.apply'] })).toBeNull()
+    for (const toggle of review.getAllByRole('button', { name: zh['ruling.proposedEdit.changes'], expanded: false })) fireEvent.click(toggle)
+    expect(await review.findByText(zh['section.failed'])).toBeTruthy()
+    expect(await review.findByText(/Revised\./)).toBeTruthy()
     expect(props.readSection).toHaveBeenCalledWith(WS, 'design/arch.md', 'storage')
-    fireEvent.click(screen.getByRole('button', { name: /展开其余 \d+ 行差异/ }))
-    expect(screen.getByRole('button', { name: zh['diff.collapse'] })).toBeTruthy()
+    fireEvent.click(review.getByRole('button', { name: /展开其余 \d+ 行差异/ }))
+    expect(review.getByRole('button', { name: zh['diff.collapse'] })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: zh['ruling.proposedEdit.applyAccept'] }))
+    fireEvent.click(review.getByRole('button', { name: zh['ruling.proposedEdit.applyAccept'] }))
     await waitFor(() => { expect(props.applyProposedEdit).toHaveBeenCalledWith(WS, 'ruling-1', 0, true) })
     props.applyProposedEdit.mockResolvedValueOnce('design/arch.md#storage changed since it was read')
-    fireEvent.click(screen.getByRole('button', { name: zh['ruling.proposedEdit.apply'] }))
-    expect(await screen.findByText('未能应用：design/arch.md#storage changed since it was read')).toBeTruthy()
+    fireEvent.click(review.getByRole('button', { name: zh['ruling.proposedEdit.apply'] }))
+    expect(await review.findByText('未能应用：design/arch.md#storage changed since it was read')).toBeTruthy()
     expect(props.applyProposedEdit).toHaveBeenLastCalledWith(WS, 'ruling-1', 0, false)
 
-    // Once applied, the proposal shows its state and no longer offers the actions; nothing is left to review.
+    // The Ruling card in the history shows every edit with its state.
+    unfold('Where does persistence go?')
+    expect(screen.getByText(zh['ruling.proposedEdit.changed'])).toBeTruthy()
+    expect(screen.getByText(zh['ruling.proposedEdit.changedHint'])).toBeTruthy()
+
+    // An applied edit leaves To review; the card keeps it, marked applied.
     const applied = { ...withEdits, rulings: [{ ...withEdits.rulings[0], appliedEdits: [0] }] as never }
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: applied })
     expect(await screen.findByText(zh['ruling.proposedEdit.applied'])).toBeTruthy()
     expect(screen.getByRole('tab', { name: `${zh['tab.consultations']} · 1` })).toBeTruthy()
-    expect(screen.getByText('1 条提议待处理')).toBeTruthy()
-    expect(screen.queryByText(zh['ruling.allApplied'])).toBeNull()
-    // With the remaining edits blocked, nothing is left to review and the card counts its edits instead.
+    const remaining = within(screen.getByRole('region', { name: new RegExp(`^${zh['review.title']}`) }))
+    expect(remaining.queryByText('name the port')).toBeNull()
+    expect(remaining.getByText('gone one')).toBeTruthy()
+    expect(screen.queryByText(zh['ruling.allDecided'])).toBeNull()
+    // With the remaining edits blocked, To review disappears and the card counts its edits instead.
     const blocked = { ...applied, index: base.index }
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: blocked })
     expect(await screen.findByText('1 条约束 · 2 个未决点 · 3 条修改提议')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: new RegExp(`^${zh['review.title']}`) })).toBeNull()
     expect(screen.getByRole('tab', { name: zh['tab.consultations'] })).toBeTruthy()
-    // With every edit applied, the card says so.
-    const done = { ...withEdits, rulings: [{ ...withEdits.rulings[0], ruling: { ...withEdits.rulings[0]?.ruling, id: 'ruling-b9c92c10-22c7-4280-ab97-85aacf8c5c9e' }, appliedEdits: [0, 1, 2] }] as never }
+    // With every edit applied or dismissed, the card says so and names the Ruling as a worker does.
+    const id = 'ruling-b9c92c10-22c7-4280-ab97-85aacf8c5c9e'
+    const decided = { ruling: { ...withEdits.rulings[0]?.ruling, id }, appliedEdits: [0, 1], dismissedEdits: [2] }
+    const done = { ...withEdits, rulings: [{ ...withEdits.rulings[0], ...decided }] as never }
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: done })
-    expect(await screen.findByText(zh['ruling.allApplied'])).toBeTruthy()
-    // The collapsed form names the Ruling as a worker does in prose.
+    expect(await screen.findByText(zh['ruling.allDecided'])).toBeTruthy()
+    unfold('Where does persistence go?')
+    expect(screen.getByText(zh['ruling.proposedEdit.dismissed'])).toBeTruthy()
     expect(screen.getByText('b9c92c10')).toBeTruthy()
-    await waitFor(() => { expect(screen.queryByRole('button', { name: zh['ruling.proposedEdit.apply'] })).toBeNull() })
+  })
+
+  it('groups alternatives for one section and dismisses an edit', async () => {
+    const base = snapshot()
+    const [first, second] = base.rulings
+    if (first === undefined || second === undefined) throw new Error('fixture has two Rulings')
+    const proposal = (rationale: string) => ({ path: 'design/arch.md', anchor: 'storage', hash: HASH, content: '## Storage\n\nX.', rationale }) as never
+    const rulings = [
+      { ...second, ruling: { ...second.ruling, proposedEdits: [proposal('newer wording')] } },
+      { ...first, ruling: { ...first.ruling, proposedEdits: [proposal('older wording')] } },
+    ]
+    const { props } = fixture({ snapshot: { ...base, rulings } })
+    tab(zh['tab.consultations'])
+    const review = within(screen.getByRole('region', { name: new RegExp(`^${zh['review.title']}`) }))
+    expect(review.getByText('2 个方案')).toBeTruthy()
+    expect(review.getByText(zh['review.alternativesHint'])).toBeTruthy()
+    // Newest Ruling first within the group.
+    expect(review.getAllByText(/wording$/).map(node => node.textContent)).toEqual(['newer wording', 'older wording'])
+
+    const [dismissNewer] = review.getAllByRole('button', { name: zh['ruling.proposedEdit.dismiss'] })
+    if (dismissNewer === undefined) throw new Error('dismiss missing')
+    fireEvent.click(dismissNewer)
+    await waitFor(() => { expect(props.dismissProposedEdit).toHaveBeenCalledWith(WS, 'ruling-2', 0) })
+    props.dismissProposedEdit.mockResolvedValueOnce('proposed edit 0 of Ruling ruling-1 is dismissed')
+    fireEvent.click(review.getAllByRole('button', { name: zh['ruling.proposedEdit.dismiss'] })[1] as HTMLElement)
+    expect(await review.findByText('未能应用：proposed edit 0 of Ruling ruling-1 is dismissed')).toBeTruthy()
+  })
+
+  it('filters the Ruling history by question, id, or section', () => {
+    const base = snapshot()
+    const [first, second] = base.rulings
+    if (first === undefined || second === undefined) throw new Error('fixture has two Rulings')
+    const proposal = { path: 'design/new.md', anchor: 'draft', hash: 'x', content: 'x', rationale: 'r' } as never
+    fixture({ snapshot: { ...base, rulings: [first, { ...second, ruling: { ...second.ruling, proposedEdits: [proposal] } }] } })
+    tab(zh['tab.consultations'])
+    expect(screen.getByText('2 个')).toBeTruthy()
+    const search = screen.getByRole('searchbox', { name: zh['history.search'] })
+    fireEvent.change(search, { target: { value: 'second' } })
+    expect(screen.getByText('Second?')).toBeTruthy()
+    expect(screen.queryByText('Where does persistence go?')).toBeNull()
+    fireEvent.change(search, { target: { value: 'design/arch.md#storage' } })
+    expect(screen.getByText('Where does persistence go?')).toBeTruthy()
+    expect(screen.queryByText('Second?')).toBeNull()
+    // A section a Ruling only proposes to change also matches.
+    fireEvent.change(search, { target: { value: 'new.md#draft' } })
+    expect(screen.getByText('Second?')).toBeTruthy()
+    expect(screen.queryByText('Where does persistence go?')).toBeNull()
+    fireEvent.change(search, { target: { value: 'RULING-2' } })
+    expect(screen.getByText('Second?')).toBeTruthy()
+    fireEvent.change(search, { target: { value: 'nothing' } })
+    expect(screen.getByText(zh['history.noMatch'])).toBeTruthy()
   })
 
   it('drops a section read that finishes after its proposal left the screen', async () => {
@@ -406,8 +470,7 @@ describe('ArchitecturePage', () => {
     let finish: (value: undefined) => void = () => undefined
     props.readSection.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
     tab(zh['tab.consultations'])
-    unfold('Where does persistence go?')
-    unfold(zh['ruling.proposedEdit.changes'])
+    fireEvent.click(screen.getAllByRole('button', { name: zh['ruling.proposedEdit.changes'], expanded: false })[0] as HTMLElement)
     await waitFor(() => { expect(props.readSection).toHaveBeenCalled() })
     tab(zh['tab.architecture'])
     finish(undefined)

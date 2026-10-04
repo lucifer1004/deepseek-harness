@@ -130,6 +130,7 @@ async function fixture(options: FixtureOptions = {}) {
     adjudicate: vi.fn(async () => ({ ok: false as const, error: new Error('x') })),
     setMainBranch: vi.fn(async (): Promise<unknown> => ({ ok: true as const, value: { path: 'architecture.yml' } })),
     applyProposedEdit: vi.fn(async (): Promise<unknown> => ({ ok: true as const, value: { path: 'design/arch.md' } })),
+    dismissProposedEdit: vi.fn(async (): Promise<unknown> => ({ ok: true as const, value: undefined })),
   }
   ctx.provide('remote.architecture', architecture)
   const configForm = {
@@ -197,7 +198,7 @@ function assertDashboardActions(
   value: Record<string, unknown> | undefined,
 ): asserts value is Record<string, unknown> & ArchitecturePageInjected {
   assert(value !== undefined)
-  for (const name of ['selectWorkspace', 'discuss', 'readSection', 'accept', 'adjudicate', 'setMainBranch', 'applyProposedEdit']) assert(typeof value[name] === 'function')
+  for (const name of ['selectWorkspace', 'discuss', 'readSection', 'accept', 'adjudicate', 'setMainBranch', 'applyProposedEdit', 'dismissProposedEdit']) assert(typeof value[name] === 'function')
   assert(typeof value.hooks === 'object' && value.hooks !== null)
 }
 
@@ -280,6 +281,15 @@ describe('mountArchitecture', () => {
     expect(await actions.applyProposedEdit(WS, ruling, 0, false)).toBe('design/arch.md#storage changed since it was read')
     b.architecture.applyProposedEdit.mockResolvedValueOnce({ ok: false, error: new RemoteError('remote/unreachable' as never, 'down', {} as never) })
     expect(await actions.applyProposedEdit(WS, ruling, 0, false)).toBe('the server could not be reached.')
+
+    expect(await actions.dismissProposedEdit(WS, ruling, 1)).toBeUndefined()
+    expect(b.architecture.dismissProposedEdit).toHaveBeenCalledWith({ workspaceId: WS, rulingId: ruling, index: 1 })
+    b.architecture.dismissProposedEdit.mockResolvedValueOnce({
+      ok: false, error: new RemoteError('architecture/failed', 'refused', { reason: 'proposed edit 1 of Ruling r is dismissed' }),
+    })
+    expect(await actions.dismissProposedEdit(WS, ruling, 1)).toBe('proposed edit 1 of Ruling r is dismissed')
+    b.architecture.dismissProposedEdit.mockResolvedValueOnce({ ok: false, error: new RemoteError('remote/unreachable' as never, 'down', {} as never) })
+    expect(await actions.dismissProposedEdit(WS, ruling, 1)).toBe('the server could not be reached.')
 
     expect(b.configForms.get).toHaveBeenCalledWith('architecture')
     const form = actions.architectModel

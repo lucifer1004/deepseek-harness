@@ -140,6 +140,11 @@ function registerUi(ctx: Context): void {
       if (result.ok) return undefined
       return result.error.code === 'architecture/failed' ? result.error.details.reason : t('settings.mainBranch.unreachable')
     },
+    dismissProposedEdit: async (workspaceId, rulingId, index) => {
+      const result = await ctx.remote.architecture.dismissProposedEdit({ workspaceId, rulingId, index })
+      if (result.ok) return undefined
+      return result.error.code === 'architecture/failed' ? result.error.details.reason : t('settings.mainBranch.unreachable')
+    },
     setMainBranch: async (workspaceId, branch) => {
       const result = await ctx.remote.architecture.setMainBranch({ workspaceId, branch })
       if (result.ok) return undefined

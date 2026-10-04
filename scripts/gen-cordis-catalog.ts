@@ -694,6 +694,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ApplyProposedEditRequest: 'architecture-agent.md',
   ApplyProposedEditResult: 'architecture-agent.md',
   ArchitectureApplyEditRequest: 'architecture-agent.md',
+  ArchitectureDismissEditRequest: 'architecture-agent.md',
+  DismissProposedEditRequest: 'architecture-agent.md',
   ArchitectureSectionRequest: 'architecture-agent.md',
   ArchitectureSectionValue: 'architecture-agent.md',
   TranscriptionRequest: 'voice-input.md',

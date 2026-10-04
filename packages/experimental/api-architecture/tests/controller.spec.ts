@@ -172,6 +172,18 @@ describe('architecture Remote namespace', () => {
     expect(stale.message).toMatch(/^design\/arch\.md#storage changed since it was read/)
     expect((await remoteError(api.applyProposedEdit({ workspaceId: WORKSPACE, rulingId: brandString<RulingId>('nope'), index: 0, accept: false }, signal))).message)
       .toMatch(/no Ruling nope/)
+    // Dismissing writes only the record; a second dismissal fails.
+    const third = (await ctx.architecture.rebuild(repo))?.sections.find(section => section.anchor === 'storage')
+    if (third === undefined) throw new Error('storage missing')
+    await ctx.architecture.recordRuling(repo, {
+      ruling: { id: brandString<RulingId>('ruling-3'), question: 'q', scope: [], summary: 's', constraints: [], unresolved: [], proposedEdits: [edit('## Storage\n\nNo.', third.hash)] },
+      workerSession: brandString<SessionId>('w'),
+      architectSession: brandString<SessionId>('a'),
+      revision: 'r',
+    })
+    const dismiss = { workspaceId: WORKSPACE, rulingId: brandString<RulingId>('ruling-3'), index: 0 }
+    await api.dismissProposedEdit(dismiss)
+    expect((await remoteError(api.dismissProposedEdit(dismiss))).message).toMatch(/is dismissed/)
     const left = new AbortController()
     left.abort(new Error('client left'))
     await expect(api.applyProposedEdit({ workspaceId: WORKSPACE, rulingId: brandString<RulingId>('nope'), index: 0, accept: false }, left.signal)).rejects.toThrow('client left')

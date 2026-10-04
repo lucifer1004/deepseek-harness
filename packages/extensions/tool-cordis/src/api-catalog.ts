@@ -466,7 +466,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the worker has no working directory, the repository has no manifest, or the agent services are not mounted.'],
       },
       {
-        signature: 'async recordRuling(cwd: string, record: Omit<RulingRecord, \'version\' | \'issuedAt\' | \'status\' | \'appliedEdits\'>): Promise<void>',
+        signature: 'async recordRuling(cwd: string, record: Omit<RulingRecord, \'version\' | \'issuedAt\' | \'status\' | \'appliedEdits\' | \'dismissedEdits\'>): Promise<void>',
         description: 'Record a Ruling for the dashboard. Call after the worker\'s log committed the consulting tool result, so the record never names a Ruling the worker did not receive.',
         parameters: [{ name: 'cwd', description: 'the worker Session\'s directory.' }, { name: 'record', description: 'Ruling, Sessions, and index revision; status starts at `issued`.' }],
       },
@@ -494,7 +494,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Apply one proposed edit of a recorded Ruling from the primary checkout, under the edit rule. The write is refused when the section changed since the architect read it. With `accept`, the section the write produced is accepted.',
         parameters: [{ name: 'request', description: 'repository directory, Ruling, the edit\'s index in `ruling.proposedEdits`, and whether to accept.' }],
         returns: 'the written path, or the refusal; an accepted section is returned with the written result.',
-        throws: ['when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied.'],
+        throws: ['when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied or dismissed.'],
+      },
+      {
+        signature: 'async dismissProposedEdit(request: DismissProposedEditRequest): Promise<void>',
+        description: 'Dismiss one proposed edit of a recorded Ruling, so the dashboard stops offering it. Writes only the Ruling record; the worker never sees the marker, and the edit stays a non-binding proposal.',
+        parameters: [{ name: 'request', description: 'repository directory, Ruling, and the edit\'s index in `ruling.proposedEdits`.' }],
+        throws: ['when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied or dismissed.'],
       },
       {
         signature: 'async accept(cwd: string, path: string, anchor: string, hash: string): Promise<Acceptance>',
@@ -560,6 +566,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'Workspace, Ruling, edit index, and whether to accept.' }, { name: 'signal', description: 'Client cancellation.' }],
         returns: 'the written path, and the acceptance when one was recorded.',
         throws: ['`architecture/failed` naming the refusal, an unknown Ruling or edit, or an edit already applied.'],
+      },
+      {
+        signature: '@Remote async dismissProposedEdit(request: ArchitectureDismissEditRequest): Promise<void>',
+        description: 'Dismiss one proposed edit of a recorded Ruling; writes only the Ruling record.',
+        parameters: [{ name: 'request', description: 'Workspace, Ruling, and edit index.' }],
+        throws: ['`architecture/failed` for an unknown Ruling or edit, or an edit already applied or dismissed.'],
       },
       {
         signature: '@Remote async setMainBranch(request: ArchitectureMainBranchRequest, signal: AbortSignal): Promise<{ readonly path: string }>',
@@ -4757,6 +4769,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ArchitectureApplyEditRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly rulingId: RulingId;\n    readonly index: number;\n    readonly accept: boolean;\n}',
   },
   {
+    name: 'ArchitectureDismissEditRequest',
+    declaration: 'export interface ArchitectureDismissEditRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly rulingId: RulingId;\n    readonly index: number;\n}',
+  },
+  {
     name: 'ArchitectureEditRequest',
     declaration: 'export interface ArchitectureEditRequest {\n    readonly cwd: string;\n    readonly path: string;\n    readonly anchor?: string | undefined;\n    readonly expectedHash?: string | undefined;\n    readonly content: string;\n    readonly signal?: AbortSignal | undefined;\n}',
   },
@@ -5331,6 +5347,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DirectoryRegistrationHandle',
     declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
+  },
+  {
+    name: 'DismissProposedEditRequest',
+    declaration: 'export interface DismissProposedEditRequest {\n    readonly cwd: string;\n    readonly rulingId: RulingId;\n    readonly index: number;\n}',
   },
   {
     name: 'Domain',
@@ -6562,7 +6582,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RulingRecord',
-    declaration: 'export interface RulingRecord {\n    readonly version: 1;\n    readonly ruling: Ruling;\n    readonly workerSession: SessionId;\n    readonly architectSession: SessionId;\n    readonly revision: string;\n    readonly issuedAt: number;\n    readonly status: RulingStatus;\n    readonly appliedEdits: readonly number[];\n}',
+    declaration: 'export interface RulingRecord {\n    readonly version: 1;\n    readonly ruling: Ruling;\n    readonly workerSession: SessionId;\n    readonly architectSession: SessionId;\n    readonly revision: string;\n    readonly issuedAt: number;\n    readonly status: RulingStatus;\n    readonly appliedEdits: readonly number[];\n    readonly dismissedEdits: readonly number[];\n}',
   },
   {
     name: 'RulingStatus',

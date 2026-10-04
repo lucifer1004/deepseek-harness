@@ -35,6 +35,8 @@ import type {
   ArchitectureEditResult,
   ApplyProposedEditRequest,
   ApplyProposedEditResult,
+  DismissProposedEditRequest,
+  ProposedEdit,
   ArchitectureIndex,
   ArchitectureManifest,
   CheckoutBranches,
@@ -514,9 +516,10 @@ export class ArchitectureService extends Service {
    * @param cwd - the worker Session's directory.
    * @param record - Ruling, Sessions, and index revision; status starts at `issued`.
    */
-  async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status' | 'appliedEdits'>): Promise<void> {
+  async recordRuling(cwd: string, record: Omit<RulingRecord, 'version' | 'issuedAt' | 'status' | 'appliedEdits' | 'dismissedEdits'>): Promise<void> {
     const root = this.primaryRoot(cwd)
-    await this.serialize(root, () => this.store(root).writeRuling({ version: 1, ...record, issuedAt: Date.now(), status: 'issued', appliedEdits: [] }))
+    const initial = { issuedAt: Date.now(), status: 'issued', appliedEdits: [], dismissedEdits: [] } as const
+    await this.serialize(root, () => this.store(root).writeRuling({ version: 1, ...record, ...initial }))
     this.changed(root)
   }
 
@@ -610,25 +613,22 @@ export class ArchitectureService extends Service {
    * when the section changed since the architect read it. With `accept`, the section the write produced is accepted.
    * @param request - repository directory, Ruling, the edit's index in `ruling.proposedEdits`, and whether to accept.
    * @returns the written path, or the refusal; an accepted section is returned with the written result.
-   * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied.
+   * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied or dismissed.
    */
   async applyProposedEdit(request: ApplyProposedEditRequest): Promise<ApplyProposedEditResult> {
     const root = this.primaryRoot(request.cwd)
-    const record = (await this.store(root).read()).rulings.get(request.rulingId)
-    if (record === undefined) throw new Error(`architecture: no Ruling ${request.rulingId}`)
-    const edit = record.ruling.proposedEdits[request.index]
-    if (edit === undefined) throw new Error(`architecture: Ruling ${request.rulingId} has no proposed edit ${request.index}`)
-    if (record.appliedEdits.includes(request.index)) throw new Error(`architecture: proposed edit ${request.index} of Ruling ${request.rulingId} is already applied`)
-    const { path, anchor, hash, content } = edit
-    const result = await this.edit({ cwd: request.cwd, path, anchor, expectedHash: hash, content, signal: request.signal })
-    if (result.kind === 'refused') return result
-    await this.serialize(root, async () => {
+    // The marker check, the write, and the marker update run in one serialized section, so a concurrent dismissal or
+    // second apply of the same edit sees this one's result.
+    const outcome = await this.serialize(root, async () => {
       const store = this.store(root)
-      const current = (await store.read()).rulings.get(request.rulingId)
-      /* v8 ignore next -- Ruling records are never deleted by the service. */
-      if (current === undefined) return
-      await store.writeRuling({ ...current, appliedEdits: [...current.appliedEdits, request.index] })
+      const { record, edit } = await this.openEdit(store, request.rulingId, request.index)
+      const { path, anchor, hash, content } = edit
+      const result = await this.edit({ cwd: request.cwd, path, anchor, expectedHash: hash, content, signal: request.signal })
+      if (result.kind === 'written') await store.writeRuling({ ...record, appliedEdits: [...record.appliedEdits, request.index] })
+      return { result, edit }
     })
+    const { result, edit } = outcome
+    if (result.kind === 'refused') return result
     if (!request.accept) {
       this.changed(root)
       return result
@@ -642,6 +642,33 @@ export class ArchitectureService extends Service {
     }
     const acceptance = await this.accept(root, written.path, written.anchor, written.hash)
     return { ...result, acceptance }
+  }
+
+  /**
+   * Dismiss one proposed edit of a recorded Ruling, so the dashboard stops offering it. Writes only the Ruling record;
+   * the worker never sees the marker, and the edit stays a non-binding proposal.
+   * @param request - repository directory, Ruling, and the edit's index in `ruling.proposedEdits`.
+   * @throws when the Ruling is not recorded, the index names no proposed edit, or the edit was already applied or dismissed.
+   */
+  async dismissProposedEdit(request: DismissProposedEditRequest): Promise<void> {
+    const root = this.primaryRoot(request.cwd)
+    await this.serialize(root, async () => {
+      const store = this.store(root)
+      const { record } = await this.openEdit(store, request.rulingId, request.index)
+      await store.writeRuling({ ...record, dismissedEdits: [...record.dismissedEdits, request.index] })
+    })
+    this.changed(root)
+  }
+
+  /** The recorded Ruling and its proposed edit at `index`, when the edit is neither applied nor dismissed; call while serialized. */
+  private async openEdit(store: RecordStore, rulingId: RulingId, index: number): Promise<{ record: RulingRecord; edit: ProposedEdit }> {
+    const record = (await store.read()).rulings.get(rulingId)
+    if (record === undefined) throw new Error(`architecture: no Ruling ${rulingId}`)
+    const edit = record.ruling.proposedEdits[index]
+    if (edit === undefined) throw new Error(`architecture: Ruling ${rulingId} has no proposed edit ${index}`)
+    if (record.appliedEdits.includes(index)) throw new Error(`architecture: proposed edit ${index} of Ruling ${rulingId} is already applied`)
+    if (record.dismissedEdits.includes(index)) throw new Error(`architecture: proposed edit ${index} of Ruling ${rulingId} is dismissed`)
+    return { record, edit }
   }
 
   /**

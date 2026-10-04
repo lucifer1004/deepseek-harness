@@ -4,6 +4,7 @@ import {
   Button,
   IconChevronDownOutlineRegular,
   IconLoadingOutlineRegular,
+  IconSearchOutlineRegular,
   Input,
   MarkdownText,
   Menu,
@@ -35,6 +36,7 @@ import type { DashboardState } from './dashboard-source.ts'
 import { counted } from './counted.ts'
 import { Fold } from './Fold.tsx'
 import { pendingEdits, ProposedEdits } from './ProposedEdits.tsx'
+import { shortRulingId, ToReview } from './ToReview.tsx'
 import { SettingsView } from './SettingsView.tsx'
 import { SourceList, STATUS_TONE } from './SourceList.tsx'
 import css from './ArchitecturePage.module.css'
@@ -63,6 +65,8 @@ export interface ArchitecturePageInjected {
   readonly adjudicate: (workspaceId: WorkspaceId, appealId: AppealId, adjudication: Adjudication) => Promise<boolean>
   /** Apply one proposed edit of a Ruling; resolves to the failure message, or undefined once written. */
   readonly applyProposedEdit: (workspaceId: WorkspaceId, rulingId: RulingId, index: number, accept: boolean) => Promise<string | undefined>
+  /** Dismiss one proposed edit of a Ruling; resolves to the failure message, or undefined once recorded. */
+  readonly dismissProposedEdit: (workspaceId: WorkspaceId, rulingId: RulingId, index: number) => Promise<string | undefined>
   /** Declare the main branch in the manifest; resolves to the failure message, or undefined once written. */
   readonly setMainBranch: (workspaceId: WorkspaceId, branch: string) => Promise<string | undefined>
   /** The profile's architect-model form; undefined when the client has no settings service. */
@@ -239,13 +243,6 @@ function sourceStatus(snapshot: ArchitectureSnapshot, path: string): GitFileStat
   return status
 }
 
-/** The first group of a Ruling id, as a worker names the Ruling in prose: `ruling-b9c92c10-…` reads `b9c92c10`. */
-function shortId(id: string): string {
-  const rest = id.replace(/^ruling-/, '')
-  const dash = rest.indexOf('-')
-  return dash === -1 ? rest : rest.slice(0, dash)
-}
-
 function pendingEditCount(snapshot: ArchitectureSnapshot | null): number {
   if (snapshot === null) return 0
   return snapshot.rulings.reduce((sum, record) => sum + pendingEdits(snapshot, record), 0)
@@ -365,11 +362,42 @@ function SectionText({ text, t }: { text: string; t: Translate }): ReactNode {
 
 function RulingsView(props: WorkspaceViewProps & { readonly now: number }): ReactNode {
   const { snapshot, t } = props
+  const [query, setQuery] = useState('')
   if (snapshot.rulings.length === 0) return <p className={css.empty}>{t('consultations.empty')}</p>
+  const needle = query.trim().toLowerCase()
+  // The filter reads the question, the Ruling id, and the sections a Ruling cites or proposes to change.
+  const shown = needle === '' ? snapshot.rulings : snapshot.rulings.filter(({ ruling }) => [
+    ruling.question,
+    ruling.id,
+    ...ruling.constraints.flatMap(constraint => constraint.citations.map(citation => `${citation.path}#${citation.anchor}`)),
+    ...ruling.proposedEdits.map(edit => `${edit.path}#${edit.anchor}`),
+  ].some(text => text.toLowerCase().includes(needle)))
   return (
-    <ul className={css.cards}>
-      {snapshot.rulings.map(record => <RulingCard key={record.ruling.id} {...props} record={record} />)}
-    </ul>
+    <>
+      <ToReview {...props} />
+      <h2 className={css.reviewHeading}>
+        {t('history.title')}
+        <span className={css.meta}>{counted(t, 'history.count', snapshot.rulings.length)}</span>
+      </h2>
+      <div className={css.filters}>
+        <Input
+          className={css.search as string}
+          icon={<IconSearchOutlineRegular />}
+          type="search"
+          aria-label={t('history.search')}
+          placeholder={t('history.search')}
+          value={query}
+          onChange={(event) => { setQuery(event.target.value) }}
+        />
+      </div>
+      {shown.length === 0
+        ? <p className={css.empty}>{t('history.noMatch')}</p>
+        : (
+          <ul className={css.cards}>
+            {shown.map(record => <RulingCard key={record.ruling.id} {...props} record={record} />)}
+          </ul>
+        )}
+    </>
   )
 }
 
@@ -384,7 +412,9 @@ function RulingCard(props: RulingCardProps): ReactNode {
     ...ruling.unresolved.length === 0 ? [] : [t('ruling.count.unresolved', { count: String(ruling.unresolved.length) })],
     ...ruling.proposedEdits.length === 0 || pending > 0 ? [] : [counted(t, 'ruling.count.proposedEdits', ruling.proposedEdits.length)],
   ]
-  const allApplied = ruling.proposedEdits.length > 0 && ruling.proposedEdits.every((_, index) => record.appliedEdits.includes(index))
+  // Every edit was decided by the user, by applying or dismissing it.
+  const allDecided = ruling.proposedEdits.length > 0
+    && ruling.proposedEdits.every((_, index) => record.appliedEdits.includes(index) || record.dismissedEdits.includes(index))
   return (
     <li className={css.card}>
       <Fold
@@ -393,11 +423,11 @@ function RulingCard(props: RulingCardProps): ReactNode {
         defaultOpen={false}
         aside={(
           <>
-            <span className={css.rulingId}>{shortId(ruling.id)}</span>
+            <span className={css.rulingId}>{shortRulingId(ruling.id)}</span>
             <Tag tone={RULING_TONE[record.status]}>{t(`ruling.status.${record.status}`)}</Tag>
             {record.stale && <Tag tone="warning">{t('ruling.stale')}</Tag>}
             {pending > 0 && <Tag tone="warning">{counted(t, 'ruling.pendingEdits', pending)}</Tag>}
-            {allApplied && <Tag tone="success">{t('ruling.allApplied')}</Tag>}
+            {allDecided && <Tag tone="success">{t('ruling.allDecided')}</Tag>}
             <span className={css.meta}>{counts.join(' · ')}</span>
           </>
         )}

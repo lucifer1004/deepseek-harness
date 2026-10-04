@@ -15,6 +15,7 @@ import type {
   ArchitectureAcceptRequest,
   ArchitectureAdjudicateRequest,
   ArchitectureApplyEditRequest,
+  ArchitectureDismissEditRequest,
   ArchitectureMainBranchRequest,
   ArchitectureSectionRequest,
   ArchitectureSectionValue,
@@ -180,6 +181,21 @@ export default class ArchitectureController extends TypertRemoteService {
     signal.throwIfAborted()
     if (result.kind === 'refused') throw failed(new Error(describeRefusal(result.refusal)))
     return result.acceptance === undefined ? { path: result.path } : { path: result.path, acceptance: result.acceptance }
+  }
+
+  /**
+   * Dismiss one proposed edit of a recorded Ruling; writes only the Ruling record.
+   * @param request - Workspace, Ruling, and edit index.
+   * @throws `architecture/failed` for an unknown Ruling or edit, or an edit already applied or dismissed.
+   */
+  @Remote
+  async dismissProposedEdit(request: ArchitectureDismissEditRequest): Promise<void> {
+    const path = this.workspacePath(request.workspaceId)
+    try {
+      await this.ctx.architecture.dismissProposedEdit({ cwd: path, rulingId: request.rulingId, index: request.index })
+    } catch (error) {
+      throw failed(error)
+    }
   }
 
   /**

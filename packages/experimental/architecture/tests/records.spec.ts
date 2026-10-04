@@ -211,6 +211,52 @@ describe('architecture records', () => {
     await expect(apply(0, brandString<RulingId>('ruling-x'))).rejects.toThrow(/no Ruling ruling-x/)
   })
 
+  it('reads a Ruling record written before dismissal existed as dismissing nothing', async () => {
+    const repo = await fixture()
+    const ctx = await boot()
+    await ctx.architecture.recordRuling(repo, record())
+    const file = join(repo, '.architecture', 'rulings', `${RULING}.json`)
+    const { dismissedEdits: _dropped, ...older } = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
+    await writeFile(file, JSON.stringify(older))
+    const snapshot = await ctx.architecture.snapshot(repo)
+    expect(snapshot.problems).toEqual([])
+    expect(snapshot.rulings[0]?.dismissedEdits).toEqual([])
+  })
+
+  it('dismisses a proposed edit without writing a source, and keeps applied and dismissed apart', async () => {
+    const repo = await fixture()
+    const ctx = await boot()
+    const storage = (await ctx.architecture.rebuild(repo))?.sections.find(section => section.anchor === 'storage')
+    if (storage === undefined) throw new Error('storage missing')
+    const edit = (content: string) => ({ path: storage.path, anchor: 'storage', hash: storage.hash, content, rationale: 'r' })
+    await ctx.architecture.recordRuling(repo, { ...record(), ruling: { ...record().ruling, proposedEdits: [edit('## Storage\n\nA.'), edit('## Storage\n\nB.')] } })
+    const before = await readFile(join(repo, 'design', 'arch.md'), 'utf8')
+    const changes: string[] = []
+    ctx.on('architecture/changed', (root) => { changes.push(root) })
+
+    await ctx.architecture.dismissProposedEdit({ cwd: repo, rulingId: RULING, index: 0 })
+    expect(await readFile(join(repo, 'design', 'arch.md'), 'utf8')).toBe(before)
+    expect(changes).toEqual([repo])
+    const dismissed = (await ctx.architecture.snapshot(repo)).rulings[0]
+    expect([dismissed?.appliedEdits, dismissed?.dismissedEdits]).toEqual([[], [0]])
+    const act = { cwd: repo, rulingId: RULING, index: 0 }
+    await expect(ctx.architecture.dismissProposedEdit(act)).rejects.toThrow(/proposed edit 0 of Ruling ruling-1 is dismissed/)
+    await expect(ctx.architecture.applyProposedEdit({ ...act, accept: false })).rejects.toThrow(/is dismissed/)
+
+    // Apply and dismiss of one edit race: whichever runs second sees the first's marker.
+    const [applied, raced] = await Promise.allSettled([
+      ctx.architecture.applyProposedEdit({ ...act, index: 1, accept: false }),
+      ctx.architecture.dismissProposedEdit({ ...act, index: 1 }),
+    ])
+    expect(applied).toMatchObject({ status: 'fulfilled', value: { kind: 'written' } })
+    expect(raced.status).toBe('rejected')
+    expect(raced.status === 'rejected' ? String(raced.reason) : '').toMatch(/is already applied/)
+    const after = (await ctx.architecture.snapshot(repo)).rulings[0]
+    expect([after?.appliedEdits, after?.dismissedEdits]).toEqual([[1], [0]])
+    await expect(ctx.architecture.dismissProposedEdit({ ...act, index: 5 })).rejects.toThrow(/has no proposed edit 5/)
+    await expect(ctx.architecture.dismissProposedEdit({ ...act, rulingId: brandString<RulingId>('nope') })).rejects.toThrow(/no Ruling nope/)
+  })
+
   it('applies without accepting, and accepts nothing when the written text is several sections', async () => {
     const repo = await fixture()
     const ctx = await boot()
@@ -342,7 +388,7 @@ describe('RecordStore', () => {
     await writeFile(join(directory, 'rulings', 'notes.txt'), 'ignored')
     await writeFile(join(directory, 'rulings', 'invalid.json'), JSON.stringify({ version: 2 }))
     await writeFile(join(directory, 'rulings', 'empty.json'), '[]')
-    const valid = { version: 1, ...record(), issuedAt: 1, status: 'issued', appliedEdits: [] }
+    const valid = { version: 1, ...record(), issuedAt: 1, status: 'issued', appliedEdits: [], dismissedEdits: [] }
     await writeFile(join(directory, 'rulings', 'renamed.json'), JSON.stringify(valid))
     const appeal = { version: 1, id: 'appeal-1', rulingId: 'ruling-1', workerSession: 'w', reason: 'r', evidence: [], filedAt: 1, delivered: false }
     await writeFile(join(directory, 'appeals', 'other.json'), JSON.stringify(appeal))

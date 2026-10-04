@@ -124,6 +124,16 @@ export interface ApplyProposedEditRequest {
   readonly signal?: AbortSignal | undefined
 }
 
+/** One proposed edit of a recorded Ruling, for the user to dismiss. */
+export interface DismissProposedEditRequest {
+  /** Any directory inside the repository. */
+  readonly cwd: string
+  /** The recorded Ruling that carries the edit. */
+  readonly rulingId: RulingId
+  /** Index into the Ruling's `proposedEdits`. */
+  readonly index: number
+}
+
 /**
  * Outcome of applying one proposed edit. `acceptance` is present when acceptance was requested: the recorded
  * acceptance, or undefined when the written content is not one indexed section.
@@ -294,6 +304,8 @@ export interface RulingRecord {
   readonly status: RulingStatus
   /** Indexes into `ruling.proposedEdits` the user applied, in application order. */
   readonly appliedEdits: readonly number[]
+  /** Indexes into `ruling.proposedEdits` the user dismissed; disjoint from `appliedEdits`. */
+  readonly dismissedEdits: readonly number[]
 }
 
 /** How the user resolved an appeal. */

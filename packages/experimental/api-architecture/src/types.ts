@@ -70,6 +70,14 @@ export interface ArchitectureApplyEditRequest {
   readonly accept: boolean
 }
 
+/** Dismiss one proposed edit of a recorded Ruling. */
+export interface ArchitectureDismissEditRequest {
+  readonly workspaceId: WorkspaceId
+  readonly rulingId: RulingId
+  /** Index into the Ruling's `proposedEdits`. */
+  readonly index: number
+}
+
 /** Decide one pending appeal. */
 export interface ArchitectureAdjudicateRequest {
   readonly workspaceId: WorkspaceId

@@ -251,6 +251,32 @@
   margin: 4px 0;
 }
 
+.review {
+  margin-bottom: 24px;
+}
+
+.reviewHeading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.editRuling {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.proposalActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .proposals {
   display: flex;
   flex-direction: column;

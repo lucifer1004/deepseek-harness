@@ -54,6 +54,8 @@ const rulingSchema = z.strictObject({
   issuedAt: z.number().int().nonnegative(),
   status: z.enum(['issued', 'appealed', 'upheld', 'overturned', 'excepted']),
   appliedEdits: z.array(z.number().int().nonnegative()),
+  // Records written before dismissal existed carry no field; they have dismissed nothing.
+  dismissedEdits: z.array(z.number().int().nonnegative()).default([]),
 })
 
 const appealSchema = z.strictObject({
