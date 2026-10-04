@@ -38,7 +38,8 @@ import { Fold } from './Fold.tsx'
 import { pendingEdits, ProposedEdits } from './ProposedEdits.tsx'
 import { shortRulingId, ToReview } from './ToReview.tsx'
 import { SettingsView } from './SettingsView.tsx'
-import { SourceList, STATUS_TONE } from './SourceList.tsx'
+import { SourceList, STATUS_TONE, type SourceScope } from './SourceList.tsx'
+import { Overview, type OverviewFigure } from './Overview.tsx'
 import css from './ArchitecturePage.module.css'
 
 /** One Workspace the user may pick. */
@@ -99,6 +100,12 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
   const dashboard = useArchitectureDashboard(state => state)
   const workspaces = useArchitectureWorkspaces(list => list)
   const [view, setView] = useState<View>('architecture')
+  // An overview figure opens its view with the filter that lists what it counted; each opening remounts the view.
+  const [opening, setOpening] = useState<{ readonly figure: OverviewFigure['key'] | undefined; readonly serial: number }>({ figure: undefined, serial: 0 })
+  const choose = (next: View): void => {
+    setView(next)
+    setOpening(current => ({ figure: undefined, serial: current.serial + 1 }))
+  }
   const [discussFailed, setDiscussFailed] = useState(false)
   const { workspaceId, snapshot, error } = dashboard
   // Relative times are read against the snapshot's arrival; each change re-renders them.
@@ -157,10 +164,41 @@ export function ArchitecturePage(props: ArchitecturePageProps): ReactNode {
                       : (
                         <>
                           <Summary snapshot={snapshot} t={t} />
-                          <SegmentedTabs items={tabs} value={view} onChange={setView} label={t('tabs.label')} />
-                          <section id="architecture-panel" role="tabpanel" aria-labelledby={`architecture-tab-${view}`} className={css.panel}>
-                            {view === 'architecture' && <IndexView {...props} workspaceId={workspaceId} snapshot={snapshot} />}
-                            {view === 'consultations' && <RulingsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
+                          {snapshot.hasManifest && (
+                            <Overview
+                              snapshot={snapshot}
+                              open={(target, figure) => {
+                                setView(target)
+                                setOpening(current => ({ figure, serial: current.serial + 1 }))
+                              }}
+                              t={t}
+                            />
+                          )}
+                          <SegmentedTabs items={tabs} value={view} onChange={choose} label={t('tabs.label')} />
+                          <section
+                            key={opening.serial}
+                            id="architecture-panel"
+                            role="tabpanel"
+                            aria-labelledby={`architecture-tab-${view}`}
+                            className={css.panel}
+                          >
+                            {view === 'architecture' && (
+                              <IndexView
+                                {...props}
+                                workspaceId={workspaceId}
+                                snapshot={snapshot}
+                                initialScope={opening.figure === 'uncommitted' ? 'uncommitted' : 'all'}
+                              />
+                            )}
+                            {view === 'consultations' && (
+                              <RulingsView
+                                {...props}
+                                workspaceId={workspaceId}
+                                snapshot={snapshot}
+                                now={now}
+                                initialFilter={opening.figure === 'stale' ? 'stale' : 'all'}
+                              />
+                            )}
                             {view === 'appeals' && <AppealsView {...props} workspaceId={workspaceId} snapshot={snapshot} now={now} />}
                             {view === 'local' && <LocalView snapshot={snapshot} t={t} />}
                             {view === 'settings' && (
@@ -268,7 +306,12 @@ function Summary({ snapshot, t }: { snapshot: ArchitectureSnapshot; t: Translate
   }
   return (
     <p className={css.summary}>
-      {snapshot.mainBranch === undefined ? t('summary.noBranch', counts) : t('summary', { branch: snapshot.mainBranch, ...counts })}
+      {/* With a manifest the overview carries the counts, so the line keeps only the branch and revision. */}
+      {snapshot.hasManifest
+        ? snapshot.mainBranch === undefined
+          ? t('summary.short.noBranch', counts)
+          : t('summary.short', { branch: snapshot.mainBranch, ...counts })
+        : snapshot.mainBranch === undefined ? t('summary.noBranch', counts) : t('summary', { branch: snapshot.mainBranch, ...counts })}
       {snapshot.problems.length > 0 && <Tag tone="danger" className={css.inlineTag}>{counted(t, 'problems', snapshot.problems.length)}</Tag>}
     </p>
   )
@@ -283,7 +326,9 @@ interface OpenSection {
 
 type WorkspaceViewProps = ArchitecturePageProps & { readonly workspaceId: WorkspaceId; readonly snapshot: ArchitectureSnapshot }
 
-function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceViewProps): ReactNode {
+type IndexViewProps = WorkspaceViewProps & { readonly initialScope: SourceScope }
+
+function IndexView({ workspaceId, snapshot, readSection, accept, initialScope, t }: IndexViewProps): ReactNode {
   const [open, setOpen] = useState<OpenSection | null>(null)
   const [acceptFailed, setAcceptFailed] = useState(false)
   const accepted = useMemo(
@@ -306,8 +351,9 @@ function IndexView({ workspaceId, snapshot, readSection, accept, t }: WorkspaceV
         {snapshot.index.diagnostics.length > 0 && (
           <p className={css.notice}>{counted(t, 'diagnostics', snapshot.index.diagnostics.length)}</p>
         )}
-        <SourceList snapshot={snapshot} openCite={open?.cite} show={show} t={t} />
+        <SourceList snapshot={snapshot} openCite={open?.cite} show={show} initialScope={initialScope} t={t} />
       </div>
+      {open === null && <p className={css.readerEmpty}>{t('section.pick')}</p>}
       {open !== null && (
         <article className={css.reader} aria-label={open.cite}>
           <header className={css.readerHeading}>
@@ -360,13 +406,19 @@ function SectionText({ text, t }: { text: string; t: Translate }): ReactNode {
   return <div className={css.document}><MarkdownText text={text} labels={labels} /></div>
 }
 
-function RulingsView(props: WorkspaceViewProps & { readonly now: number }): ReactNode {
-  const { snapshot, t } = props
+const RULING_FILTERS = ['all', 'stale', 'appealed'] as const
+type RulingFilter = typeof RULING_FILTERS[number]
+
+function RulingsView(props: WorkspaceViewProps & { readonly now: number; readonly initialFilter: RulingFilter }): ReactNode {
+  const { snapshot, initialFilter, t } = props
   const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<RulingFilter>(initialFilter)
   if (snapshot.rulings.length === 0) return <p className={css.empty}>{t('consultations.empty')}</p>
   const needle = query.trim().toLowerCase()
-  // The filter reads the question, the Ruling id, and the sections a Ruling cites or proposes to change.
-  const shown = needle === '' ? snapshot.rulings : snapshot.rulings.filter(({ ruling }) => [
+  const kept = snapshot.rulings.filter(record => filter === 'all'
+    || (filter === 'stale' ? record.stale : record.status === 'appealed'))
+  // The search reads the question, the Ruling id, and the sections a Ruling cites or proposes to change.
+  const shown = needle === '' ? kept : kept.filter(({ ruling }) => [
     ruling.question,
     ruling.id,
     ...ruling.constraints.flatMap(constraint => constraint.citations.map(citation => `${citation.path}#${citation.anchor}`)),
@@ -389,13 +441,27 @@ function RulingsView(props: WorkspaceViewProps & { readonly now: number }): Reac
           value={query}
           onChange={(event) => { setQuery(event.target.value) }}
         />
+        <SegmentedControl
+          id="architecture-ruling-filter"
+          value={filter}
+          options={RULING_FILTERS.map(option => ({
+            value: option,
+            label: option === 'all'
+              ? t('history.filter.all')
+              : `${t(`history.filter.${option}`)} · ${String(snapshot.rulings.filter(record => option === 'stale' ? record.stale : record.status === 'appealed').length)}`,
+          }))}
+          onChange={setFilter}
+          label={t('history.filter')}
+        />
       </div>
       {shown.length === 0
         ? <p className={css.empty}>{t('history.noMatch')}</p>
         : (
-          <ul className={css.cards}>
-            {shown.map(record => <RulingCard key={record.ruling.id} {...props} record={record} />)}
-          </ul>
+          <div className={css.tableFrame}>
+            <ul className={css.table} aria-label={t('history.title')}>
+              {shown.map(record => <RulingCard key={record.ruling.id} {...props} record={record} />)}
+            </ul>
+          </div>
         )}
     </>
   )
@@ -416,22 +482,26 @@ function RulingCard(props: RulingCardProps): ReactNode {
   const allDecided = ruling.proposedEdits.length > 0
     && ruling.proposedEdits.every((_, index) => record.appliedEdits.includes(index) || record.dismissedEdits.includes(index))
   return (
-    <li className={css.card}>
+    <li className={css.tableRow}>
       <Fold
         variant="card"
         heading={ruling.question}
         defaultOpen={false}
         aside={(
           <>
+            <span className={css.tags}>
+              {pending > 0 && <Tag tone="warning">{counted(t, 'ruling.pendingEdits', pending)}</Tag>}
+              {record.stale && <Tag tone="warning">{t('ruling.stale')}</Tag>}
+              {record.status !== 'issued' && <Tag tone={RULING_TONE[record.status]}>{t(`ruling.status.${record.status}`)}</Tag>}
+              {allDecided && <Tag tone="success">{t('ruling.allDecided')}</Tag>}
+            </span>
+            <span className={css.counts}>{counts.join(' · ')}</span>
             <span className={css.rulingId}>{shortRulingId(ruling.id)}</span>
-            <Tag tone={RULING_TONE[record.status]}>{t(`ruling.status.${record.status}`)}</Tag>
-            {record.stale && <Tag tone="warning">{t('ruling.stale')}</Tag>}
-            {pending > 0 && <Tag tone="warning">{counted(t, 'ruling.pendingEdits', pending)}</Tag>}
-            {allDecided && <Tag tone="success">{t('ruling.allDecided')}</Tag>}
-            <span className={css.meta}>{counts.join(' · ')}</span>
+            <time className={css.age} dateTime={new Date(record.issuedAt).toISOString()}>{ago(t, record.issuedAt, now)}</time>
           </>
         )}
       >
+        <p className={css.fullQuestion}>{ruling.question}</p>
         <p className={css.meta}>
           {ruling.id} · {t('ruling.meta', { time: ago(t, record.issuedAt, now), session: record.workerSession })}
         </p>

@@ -22,7 +22,8 @@
 }
 
 .pageContent {
-  max-width: 960px;
+  /* A dashboard uses the width the window gives it, up to a two-pane reading width. */
+  max-width: 1280px;
   margin: 0 auto;
   padding: 0 clamp(24px, 4vw, 48px) 48px;
 }
@@ -119,8 +120,35 @@
   gap: 16px;
 }
 
+/* From a laptop width up, the source list and the reader sit side by side; the reader shows a hint until a section opens. */
+@media (min-width: 1100px) {
+  .split {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+}
+
 .split:has(.reader) {
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+.readerEmpty {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  display: none;
+  margin: 0;
+  padding: 48px 16px;
+  border: 1px dashed var(--dsw-alias-border-l3);
+  border-radius: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+  font-size: 13px;
+}
+
+@media (min-width: 1100px) {
+  .readerEmpty {
+    display: block;
+  }
 }
 
 .list {
@@ -300,6 +328,131 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* The Ruling history: one bordered list whose closed rows are single lines. Rows share the list's columns through
+   subgrid, so tags, counts, ids, and ages line up down the list whatever each row holds. */
+.table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  column-gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+}
+
+.tableRow,
+.tableRow > .fold,
+.tableRow .cardHeading {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.tableRow {
+  padding: 10px 16px;
+}
+
+/* An open row's content spans every column. */
+.tableRow > .fold > :not(.cardHeading) {
+  grid-column: 1 / -1;
+}
+
+/* Columns that hold nothing take no space and no gap. */
+.table {
+  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
+}
+
+.tableRow + .tableRow {
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.tableRow:hover:not(:has([data-open])) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tableRow:first-child {
+  border-radius: 11px 11px 0 0;
+}
+
+.tableRow:last-child {
+  border-radius: 0 0 11px 11px;
+}
+
+.tableRow .cardHeading {
+  align-items: center;
+}
+
+/* A row's heading keeps its question to one line; the open row repeats it in full as its first paragraph. */
+.tableRow .question {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.tableRow .fold[data-open] .question {
+  font-weight: 500;
+}
+
+.fullQuestion {
+  margin: 8px 0 4px 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tableRow > .fold > :not(.cardHeading) {
+  padding-inline-start: 20px;
+}
+
+.tableRow > .fold > .fullQuestion {
+  padding-inline-start: 0;
+}
+
+.tags {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.counts {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.age {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  text-align: end;
+  white-space: nowrap;
+}
+
+/* The question keeps at least a third of the row: a narrower list drops the counts, then the ids. */
+.tableFrame {
+  container-type: inline-size;
+}
+
+/* Each heading item has a fixed column, so dropping one leaves the others in place. */
+.tableRow .cardHeading > .foldToggle { grid-column: 1; }
+.tableRow .tags { grid-column: 2; }
+.tableRow .counts { grid-column: 3; }
+.tableRow .rulingId { grid-column: 4; }
+.tableRow .age { grid-column: 5; }
+
+@container (max-width: 1040px) {
+  .tableRow .counts {
+    display: none;
+  }
+}
+
+@container (max-width: 720px) {
+  .tableRow .rulingId {
+    display: none;
+  }
 }
 
 .rulingId {

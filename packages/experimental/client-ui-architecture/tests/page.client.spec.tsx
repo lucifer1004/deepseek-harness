@@ -172,14 +172,17 @@ function unfold(name: string | RegExp): void {
   fireEvent.click(screen.getByRole('button', { name, expanded: false }))
 }
 
+/** Open one dashboard view; the views' tablist is the first, ahead of any filter inside a view. */
 function tab(name: string): void {
-  fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${name}`) }))
+  const [views] = screen.getAllByRole('tablist')
+  if (views === undefined) throw new Error('no tablist')
+  fireEvent.click(within(views).getByRole('tab', { name: new RegExp(`^${name}`) }))
 }
 
 describe('ArchitecturePage', () => {
   it('shows the index summary, source status, and reads a section', async () => {
     const { props } = fixture()
-    expect(screen.getByText(/分支 main · 2 个来源 · 3 个章节 · 修订 0123456789abcdef/)).toBeTruthy()
+    expect(screen.getByText(/分支 main · 修订 0123456789abcdef/)).toBeTruthy()
     expect(screen.getByText('1 个记录文件无法读取')).toBeTruthy()
     expect(screen.getByText('1 个来源无法索引')).toBeTruthy()
     expect(screen.getByText('未跟踪')).toBeTruthy()
@@ -245,7 +248,12 @@ describe('ArchitecturePage', () => {
       rulings: [{ ...first, ruling: { ...first.ruling, proposedEdits: [{ path: 'design/arch.md', anchor: 'storage', hash: HASH, content: 'x', rationale: 'r' }] as never } }],
     }
     const { dashboard } = fixture({ snapshot: single }, undefined, undefined, en)
-    expect(screen.getByText(/^Branch main · 1 source · 1 section · revision/)).toBeTruthy()
+    expect(screen.getByText(/^Branch main · revision/)).toBeTruthy()
+    const overview = within(screen.getByRole('list', { name: en['overview.label'] }))
+    expect(overview.getByText('sections in 1 source')).toBeTruthy()
+    expect(overview.getByText('source not committed')).toBeTruthy()
+    expect(overview.getByText('edit to review')).toBeTruthy()
+    expect(overview.getByText('Ruling cites changed text')).toBeTruthy()
     expect(screen.getByText('1 record file could not be read')).toBeTruthy()
     expect(screen.getByText('1 source · 1 section')).toBeTruthy()
     fireEvent.click(screen.getByRole('tab', { name: `${en['tab.consultations']} · 1` }))
@@ -277,7 +285,7 @@ describe('ArchitecturePage', () => {
     expect(screen.queryByText(/没有声明 mainBranch/)).toBeNull()
     const { mainBranch: _omitted, ...withoutBranch } = snapshot()
     dashboard.set({ ...dashboard.getSnapshot(), snapshot: withoutBranch })
-    expect(await screen.findByText(/未声明主分支 · 2 个来源 · 3 个章节/)).toBeTruthy()
+    expect(await screen.findByText(/未声明主分支 · 修订/)).toBeTruthy()
     expect(screen.getByText('architecture.yml 没有声明 mainBranch，所以架构来源无法修改，只有你接受过的章节可被裁定引用')).toBeTruthy()
   })
 
@@ -307,6 +315,45 @@ describe('ArchitecturePage', () => {
     expect(await screen.findByText(zh['section.failed'])).toBeTruthy()
     late.resolve(undefined)
     await waitFor(() => { expect(screen.getByRole('article', { name: 'design/arch.md#storage' })).toBeTruthy() })
+  })
+
+  it('opens from each overview figure the view and filter that list what it counts', async () => {
+    const { dashboard } = fixture()
+    const figure = (label: string) => within(screen.getByRole('list', { name: zh['overview.label'] })).getByRole('button', { name: new RegExp(label) })
+    // The fixture: 3 sections in 2 sources, 1 untracked, 1 stale Ruling, 1 undecided appeal.
+    expect(figure('个章节').textContent).toBe('3个章节，2 个来源')
+    expect(figure('个来源未提交').dataset['attention']).toBe('')
+    expect(figure('个裁定引用的内容已变').dataset['attention']).toBeUndefined()
+    expect(figure('处修改待审阅').dataset['empty']).toBe('')
+
+    fireEvent.click(figure('个来源未提交'))
+    expect(screen.getByRole('tab', { name: zh['tab.architecture'] }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: zh['index.scope.uncommitted'] }).getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.click(figure('个裁定引用的内容已变'))
+    expect(screen.getByRole('tab', { name: `${zh['history.filter.stale']} · 1` }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('Where does persistence go?')).toBeTruthy()
+    expect(screen.queryByText('Second?')).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: `${zh['history.filter.appealed']} · 1` }))
+    expect(screen.getByText('Where does persistence go?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: zh['history.filter.all'] }))
+    expect(screen.getByText('Second?')).toBeTruthy()
+    // Choosing the tab itself opens the view without a filter.
+    fireEvent.click(figure('个裁定引用的内容已变'))
+    tab(zh['tab.appeals'])
+    tab(zh['tab.consultations'])
+    expect(screen.getByText('Second?')).toBeTruthy()
+
+    fireEvent.click(figure('个申诉待裁决'))
+    expect(screen.getByRole('tab', { name: `${zh['tab.appeals']} · 1` }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.click(figure('处修改待审阅'))
+    expect(screen.getByRole('tab', { name: zh['tab.consultations'] }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.click(figure('个章节'))
+    expect(screen.getByRole('tab', { name: zh['index.scope.all'] }).getAttribute('aria-selected')).toBe('true')
+    // A repository without a manifest has nothing to count.
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: snapshot({ hasManifest: false }) })
+    expect(await screen.findByText(/分支 main · 2 个来源 · 3 个章节/)).toBeTruthy()
+    expect(screen.queryByRole('list', { name: zh['overview.label'] })).toBeNull()
   })
 
   it('lists Rulings with status, staleness, constraints, and unresolved points', () => {

@@ -14,6 +14,10 @@ export type CountedKey =
   | 'ruling.pendingEdits'
   | 'review.alternatives'
   | 'history.count'
+  | 'overview.uncommitted'
+  | 'overview.review'
+  | 'overview.stale'
+  | 'overview.appeals'
 
 /**
  * Translate a count with the form its number takes.

@@ -21,7 +21,8 @@ export const STATUS_TONE: Readonly<Record<GitFileStatus, TagTone>> = {
 const OPEN_DIRECTORIES_UP_TO = 12
 
 const SCOPES = ['all', 'uncommitted'] as const
-type Scope = typeof SCOPES[number]
+/** Which sources the list shows. */
+export type SourceScope = typeof SCOPES[number]
 
 /** Props of {@link SourceList}. */
 export interface SourceListProps {
@@ -29,6 +30,8 @@ export interface SourceListProps {
   /** Cite of the section in the reader, if any. */
   readonly openCite: string | undefined
   readonly show: (section: IndexedSection) => void
+  /** The scope the list opens with. */
+  readonly initialScope?: SourceScope
   readonly t: Translate
 }
 
@@ -47,9 +50,9 @@ interface SourceEntry {
  * @param props - the snapshot, the open section, the action that opens one, and copy.
  * @returns the filter controls and the grouped sources.
  */
-export function SourceList({ snapshot, openCite, show, t }: SourceListProps): ReactNode {
+export function SourceList({ snapshot, openCite, show, initialScope = 'all', t }: SourceListProps): ReactNode {
   const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<Scope>('all')
+  const [scope, setScope] = useState<SourceScope>(initialScope)
   // Directories and sources the user toggled away from their default state.
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   const flip = (key: string): void => {

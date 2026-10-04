@@ -1,0 +1,65 @@
+/* Overview strip: one figure per attention point, in a row that wraps on a narrow page. */
+.overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.overview > li {
+  display: flex;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.figure:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.figure:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.value {
+  color: var(--dsw-alias-label-primary);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* Nothing to count: the figure recedes so the counts that need attention stand out. */
+.figure[data-empty] .value {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* A count the user should act on: the amber of the stale and pending tags. */
+.figure[data-attention] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, var(--dsw-alias-border-l3));
+}
+
+.figure[data-attention] .value {
+  color: var(--dsw-alias-state-warn-label);
+}
