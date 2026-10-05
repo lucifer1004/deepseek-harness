@@ -416,6 +416,8 @@ describe('ArchitecturePage', () => {
     expect(await review.findByText(zh['section.failed'])).toBeTruthy()
     expect(await review.findByText(/Revised\./)).toBeTruthy()
     expect(props.readSection).toHaveBeenCalledWith(WS, 'design/arch.md', 'storage')
+    // Prose diffs start wrapped.
+    expect(review.getAllByRole('button', { name: zh['markdown.wrap'] }).map(button => button.getAttribute('aria-pressed'))).toEqual(['true'])
     fireEvent.click(review.getByRole('button', { name: /展开其余 \d+ 行差异/ }))
     expect(review.getByRole('button', { name: zh['diff.collapse'] })).toBeTruthy()
 

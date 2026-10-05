@@ -47,6 +47,15 @@ describe('code-card controls', () => {
     expect(button.getAttribute('aria-pressed')).toBe(String(wasWrapped))
   })
 
+  it('starts a diff wrapped when its owner asks, and the toggle still unwraps it', () => {
+    const view = render(<DiffBlock diffs={[{ path: 'notes.md', oldText: 'old', newText: 'new' }]} labels={{ ...diffBlockLabels, ...toolbarLabels }} defaultWrapped />)
+    const button = screen.getByRole('button', { name: 'Wrap lines' })
+    const card = view.container.querySelector('[data-diff]')
+    expect([button.getAttribute('aria-pressed'), card?.getAttribute('data-code-wrap')]).toEqual(['true', 'true'])
+    fireEvent.click(button)
+    expect([button.getAttribute('aria-pressed'), card?.getAttribute('data-code-wrap')]).toEqual(['false', 'false'])
+  })
+
   it('shows hover tooltips for copying and wrapping and updates the wrapping action', () => {
     render(<CodeBlock code="source" {...labels} />)
     const copy = screen.getByRole('button', { name: 'Copy' })

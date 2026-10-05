@@ -179,7 +179,8 @@ function CurrentDiff(props: CurrentDiffProps): ReactNode {
   if (current.kind === 'gone') return <p className={css.notice} role="alert">{t('section.failed')}</p>
   return (
     <>
-      <DiffBlock diffs={[{ path: cite, oldText: current.text, newText: edit.content }]} labels={labels} />
+      {/* Architecture prose keeps one paragraph per line, so its diff starts wrapped. */}
+      <DiffBlock diffs={[{ path: cite, oldText: current.text, newText: edit.content }]} labels={labels} defaultWrapped />
       {children}
     </>
   )

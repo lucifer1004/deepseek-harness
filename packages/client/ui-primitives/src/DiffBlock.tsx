@@ -33,6 +33,11 @@ export interface DiffBlockProps {
   maxLines?: number | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
+  /**
+   * Whether lines start wrapped (default false, which preserves source columns). It seeds the card's wrap toggle
+   * once at mount; a later change does not override the user's toggle.
+   */
+  defaultWrapped?: boolean | undefined
 }
 
 /** Localized chrome for {@link DiffBlock}. */
@@ -165,11 +170,11 @@ function copyText(rows: DiffRow[]): string {
  * @param props - see {@link DiffBlockProps}.
  * @returns the diff block element.
  */
-export function DiffBlock({ diffs, labels, maxLines = DEFAULT_DIFF_MAX_LINES, className }: DiffBlockProps) {
+export function DiffBlock({ diffs, labels, maxLines = DEFAULT_DIFF_MAX_LINES, className, defaultWrapped = false }: DiffBlockProps) {
   const rows = useMemo(() => buildRows(diffs), [diffs])
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [wrapped, setWrapped] = useState(false)
+  const [wrapped, setWrapped] = useState(defaultWrapped)
   const firstLanguage = diffs[0] === undefined ? undefined : languageForPath(diffs[0].path)
   const language = diffs.every(diff => languageForPath(diff.path) === firstLanguage) ? firstLanguage : undefined
 
