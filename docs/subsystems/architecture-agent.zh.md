@@ -30,7 +30,7 @@
 
 ## 仪表盘
 
-仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区；该仓库每次发生 `architecture/changed` 事件后，流都会产出一个 `ArchitectureSnapshot`。其视图展示带有各来源 git 状态的索引、带有状态、引用章节是否变化以及对照当前章节的修改提议的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法在主 checkout 中声明仓库的主分支，可从仓库的本地分支或书签中选择，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“咨询”视图按目标章节分组列出待处理的修改提议，即既未应用也未不采用、且其章节仍是架构师读取时哈希的提议。它通过 `applyProposedEdit` Remote 方法，在主 checkout 中按编辑规则应用修改提议，并可同时接受由此产生的章节；咨询之后已变化的章节会被拒绝。它通过 `dismissProposedEdit` Remote 方法不采用修改提议，该方法在裁定记录中把该提议标记为不采用，不写入任何架构来源。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
+仪表盘是一个主面板，并带有侧边栏入口。它通过 `architecture` Remote 的 `follow` 流跟随一个工作区：若服务已为该仓库构建过 `ArchitectureSnapshot`，流先产出最近一份并标记为非最新，再产出一份新读取的快照，之后该仓库每次发生 `architecture/changed` 事件都会再产出一份。其视图展示带有各来源 git 状态的索引、带有状态、引用章节是否变化以及对照当前章节的修改提议的裁定、带有裁决表单的申诉，本地目录下的文件及其 git 状态，以及设置。设置视图通过 `setMainBranch` Remote 方法在主 checkout 中声明仓库的主分支，可从仓库的本地分支或书签中选择，并编辑 profile 中的架构师模型，即服务配置中每次咨询都会读取的实时字段 `architectProvider`、`architectModel` 和 `architectReasoningEffort`。“咨询”视图按目标章节分组列出待处理的修改提议，即既未应用也未不采用、且其章节仍是架构师读取时哈希的提议。它通过 `applyProposedEdit` Remote 方法，在主 checkout 中按编辑规则应用修改提议，并可同时接受由此产生的章节；咨询之后已变化的章节会被拒绝。它通过 `dismissProposedEdit` Remote 方法不采用修改提议，该方法在裁定记录中把该提议标记为不采用，不写入任何架构来源。“讨论架构”在所选工作区中以 `architect` 预设开启新 Session。
 
 ## 提交与 CI 检查
 
