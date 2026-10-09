@@ -105,6 +105,28 @@ describe('architecture records', () => {
     await expect((await boot()).architecture.snapshot(other)).rejects.toThrow()
   })
 
+  it('keeps the last complete snapshot of a repository, marked not fresh, and replaces it on each complete read', async () => {
+    const repo = await fixture()
+    const ctx = await boot()
+    expect(ctx.architecture.lastSnapshot(repo)).toBeUndefined()
+    const read = await ctx.architecture.snapshot(join(repo, 'design'))
+    expect(read.fresh).toBe(true)
+    expect(ctx.architecture.lastSnapshot(repo)).toEqual({ ...read, fresh: false })
+    await ctx.architecture.recordRuling(repo, record())
+    // A write does not touch the kept copy; only the next complete read does.
+    expect(ctx.architecture.lastSnapshot(repo)?.rulings).toEqual([])
+    await ctx.architecture.snapshot(repo)
+    expect(ctx.architecture.lastSnapshot(repo)?.rulings.map(entry => entry.ruling.id)).toEqual([RULING])
+    // A failed read keeps the previous copy.
+    await writeFile(join(repo, 'architecture.yml'), 'sources: 3\n')
+    await expect(ctx.architecture.snapshot(repo)).rejects.toThrow()
+    expect(ctx.architecture.lastSnapshot(repo)?.rulings).toHaveLength(1)
+    // Outside a checkout nothing is kept, and an unsupported snapshot is never kept.
+    const outside = await scratch()
+    expect((await ctx.architecture.snapshot(outside)).fresh).toBe(true)
+    expect(ctx.architecture.lastSnapshot(outside)).toBeUndefined()
+  })
+
   it('notifies when a built index changes, reusing the sections of unchanged sources', async () => {
     const repo = await fixture()
     const ctx = await boot()

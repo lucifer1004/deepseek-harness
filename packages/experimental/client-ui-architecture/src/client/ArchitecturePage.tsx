@@ -313,6 +313,12 @@ function Summary({ snapshot, t }: { snapshot: ArchitectureSnapshot; t: Translate
           : t('summary.short', { branch: snapshot.mainBranch, ...counts })
         : snapshot.mainBranch === undefined ? t('summary.noBranch', counts) : t('summary', { branch: snapshot.mainBranch, ...counts })}
       {snapshot.problems.length > 0 && <Tag tone="danger" className={css.inlineTag}>{counted(t, 'problems', snapshot.problems.length)}</Tag>}
+      {!snapshot.fresh && (
+        <span className={css.refreshing} role="status">
+          <IconLoadingOutlineRegular className={css.spinner} aria-hidden />
+          {t('summary.refreshing')}
+        </span>
+      )}
     </p>
   )
 }
@@ -377,6 +383,7 @@ function IndexView({ workspaceId, snapshot, readSection, accept, initialScope, t
                             <Button
                               size="sm"
                               variant="outline"
+                              disabled={!snapshot.fresh}
                               onClick={() => { void accept(workspaceId, value).then((ok) => { setAcceptFailed(!ok) }) }}
                             >
                               {t('section.accept')}
@@ -552,6 +559,7 @@ function AppealsView({ workspaceId, snapshot, now, adjudicate, t }: WorkspaceVie
           appeal={appeal}
           question={snapshot.rulings.find(record => record.ruling.id === appeal.rulingId)?.ruling.question}
           decide={adjudication => adjudicate(workspaceId, appeal.id, adjudication)}
+          stale={!snapshot.fresh}
           now={now}
           t={t}
         />
@@ -560,17 +568,20 @@ function AppealsView({ workspaceId, snapshot, now, adjudicate, t }: WorkspaceVie
   )
 }
 
-function AppealCard({ appeal, question, decide, now, t }: {
+function AppealCard({ appeal, question, decide, stale, now, t }: {
   appeal: AppealRecord
   question: string | undefined
   decide: (adjudication: Adjudication) => Promise<boolean>
+  /** The snapshot may predate a decision, so the form waits for a fresh one. */
+  stale: boolean
   now: number
   t: Translate
 }): ReactNode {
   const [kind, setKind] = useState<Adjudication['kind']>('uphold')
   const [scope, setScope] = useState('')
   const [note, setNote] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [submitting, setBusy] = useState(false)
+  const busy = submitting || stale
   const [failed, setFailed] = useState(false)
   const decided = appeal.adjudication
   const submit = (): void => {

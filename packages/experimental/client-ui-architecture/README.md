@@ -33,7 +33,7 @@ The Architecture view groups sources by directory, all open for up to 12 sources
 
 The Settings view has two groups. **This repository** picks the main branch from the repository's local branches or jj bookmarks, marking the ones the primary checkout is on, plus the declared one; Write rewrites the manifest's `mainBranch` at once in the primary checkout, and the change takes effect for others once the user commits it. A refusal shows its reason under the control. **All repositories** stages the architect model and its reasoning effort from the Host model catalog, or Use the consulting session's model, and Save writes all three fields to the `architecture` entry of the profile. The same model field is the configuration page of the bundle's `architecture` row on the Plugins page.
 
-A read failure keeps the last snapshot and shows the error above it. A failed acceptance, decision, Session opening, branch write, or model save shows a notice beside its control.
+Opening the page shows the last snapshot the Host read for the repository, if any, with Refreshing beside the revision, while a fresh one is read; until it arrives, Accept, Apply, Dismiss, the appeal decision, and Write stay disabled, since the kept snapshot may list edits and appeals already decided. A read failure keeps the last snapshot and shows the error above it. A failed acceptance, decision, Session opening, branch write, or model save shows a notice beside its control.
 
 -----
 

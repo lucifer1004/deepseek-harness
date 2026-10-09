@@ -401,4 +401,9 @@ export interface ArchitectureSnapshot {
   readonly localEntries: readonly LocalEntry[]
   /** Record files that could not be read, with the local-directory path and the reason. */
   readonly problems: ReadonlyArray<{ readonly file: string; readonly message: string }>
+  /**
+   * True when just read; false for the copy {@link ArchitectureService.lastSnapshot} returns, which may predate
+   * changes written since, so its Rulings, appeals, and proposed edits may already be decided.
+   */
+  readonly fresh: boolean
 }

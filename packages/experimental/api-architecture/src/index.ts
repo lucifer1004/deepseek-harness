@@ -75,8 +75,10 @@ export default class ArchitectureController extends TypertRemoteService {
   }
 
   /**
-   * Follow the dashboard state of a Workspace: yield a snapshot now and after
-   * each `architecture/changed` notification for its repository. Notifications
+   * Follow the dashboard state of a Workspace: yield the last snapshot the
+   * service read for its repository first, with `fresh` false, when there is
+   * one; then a freshly read snapshot, and another after each
+   * `architecture/changed` notification for its repository. Notifications
    * that arrive while a snapshot is being read coalesce into one more read.
    * @param workspaceId - Workspace whose repository is shown.
    * @param signal - Client observation lifetime.
@@ -96,6 +98,12 @@ export default class ArchitectureController extends TypertRemoteService {
     const onAbort = (): void => { wake?.() }
     signal.addEventListener('abort', onAbort, { once: true })
     try {
+      // The kept copy shows at once while the read below runs; that read follows it, so snapshots stay oldest first.
+      const last = this.ctx.architecture.lastSnapshot(path)
+      if (last !== undefined) {
+        root = last.root
+        yield last
+      }
       while (!signal.aborted) {
         if (!dirty) {
           await new Promise<void>((resolve) => { wake = resolve })

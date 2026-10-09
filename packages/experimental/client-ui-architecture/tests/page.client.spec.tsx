@@ -100,6 +100,7 @@ function snapshot(overrides: Partial<ArchitectureSnapshot> = {}): ArchitectureSn
     acceptances: [],
     localEntries: [{ path: '.architecture/notes.md', status: 'ignored' }],
     problems: [{ file: '.architecture/rulings/x.json', message: 'bad' }],
+    fresh: true,
     ...overrides,
   }
 }
@@ -525,6 +526,38 @@ describe('ArchitecturePage', () => {
     finish(undefined)
     await Promise.resolve()
     expect(screen.queryByText(zh['section.failed'])).toBeNull()
+  })
+
+  it('shows a kept snapshot as refreshing and holds every action until a fresh one arrives', async () => {
+    const base = snapshot()
+    const first = base.rulings[0]
+    if (first === undefined) throw new Error('fixture has no Ruling')
+    const edit = { path: 'design/new.md', anchor: 'draft', hash: OTHER, content: '# Draft\n\nRevised.', rationale: 'r' } as never
+    const kept = { ...base, fresh: false, branches: { all: ['main'], current: ['main'] }, rulings: [{ ...first, ruling: { ...first.ruling, proposedEdits: [edit] } }, ...base.rulings.slice(1)] }
+    const { props, dashboard } = fixture({ snapshot: kept })
+    expect(screen.getByRole('status', { name: '' }).textContent).toBe(zh['summary.refreshing'])
+    // The reader still opens; only acceptance waits.
+    expand('design/new.md')
+    fireEvent.click(screen.getByRole('button', { name: '查看 design/new.md#draft' }))
+    expect(await screen.findByRole<HTMLButtonElement>('button', { name: zh['section.accept'] })).toHaveProperty('disabled', true)
+    tab(zh['tab.consultations'])
+    const review = within(screen.getByRole('region', { name: new RegExp(`^${zh['review.title']}`) }))
+    for (const toggle of review.getAllByRole('button', { name: zh['ruling.proposedEdit.changes'], expanded: false })) fireEvent.click(toggle)
+    const apply = await review.findByRole<HTMLButtonElement>('button', { name: zh['ruling.proposedEdit.applyAccept'] })
+    expect([apply.disabled, review.getByRole<HTMLButtonElement>('button', { name: zh['ruling.proposedEdit.dismiss'] }).disabled]).toEqual([true, true])
+    tab(zh['tab.appeals'])
+    for (const toggle of screen.getAllByRole('button', { expanded: false })) fireEvent.click(toggle)
+    expect(screen.getAllByRole<HTMLButtonElement>('button', { name: zh['appeal.submit'] }).every(button => button.disabled)).toBe(true)
+    tab(zh['tab.settings'])
+    expect(screen.getByLabelText<HTMLSelectElement>(zh['settings.mainBranch']).disabled).toBe(true)
+
+    dashboard.set({ ...dashboard.getSnapshot(), snapshot: { ...kept, fresh: true } })
+    await waitFor(() => { expect(screen.queryByText(zh['summary.refreshing'])).toBeNull() })
+    expect(screen.getByLabelText<HTMLSelectElement>(zh['settings.mainBranch']).disabled).toBe(false)
+    tab(zh['tab.appeals'])
+    for (const toggle of screen.getAllByRole('button', { expanded: false })) fireEvent.click(toggle)
+    expect(screen.getAllByRole<HTMLButtonElement>('button', { name: zh['appeal.submit'] }).some(button => !button.disabled)).toBe(true)
+    expect(props.adjudicate).not.toHaveBeenCalled()
   })
 
   it('decides a pending appeal and shows decided appeals', async () => {

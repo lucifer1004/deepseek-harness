@@ -268,6 +268,8 @@ export class ArchitectureService extends Service {
   private readonly revisions = new Map<string, string>()
   /** Sections of each root's last index build, holding one text per source, reused while a source is unchanged. */
   private readonly sectionCaches = new Map<string, SectionCache>()
+  /** The last complete snapshot of each primary root, already marked not fresh. */
+  private readonly lastSnapshots = new Map<string, ArchitectureSnapshot>()
   /** Serializes read-modify-write of each repository's records. */
   private readonly writes = new Map<string, Promise<unknown>>()
   /** Lifts the tool mask of each agent currently composed with the architect preset. */
@@ -774,7 +776,8 @@ export class ArchitectureService extends Service {
   }
 
   /**
-   * Read the whole dashboard state of a repository. Rebuilds the index first.
+   * Read the whole dashboard state of a repository. Rebuilds the index first, and keeps the result for
+   * {@link lastSnapshot}.
    * @param cwd - any directory inside the repository.
    * @param signal - cancels the rebuild and git reads.
    * @returns the snapshot; outside a usable git or jj checkout, an empty snapshot with `unsupported` set.
@@ -798,6 +801,7 @@ export class ArchitectureService extends Service {
         acceptances: [],
         localEntries: [],
         problems: [],
+        fresh: true,
       }
     }
     const checkout = found
@@ -840,7 +844,7 @@ export class ArchitectureService extends Service {
       .sort((a, b) => b.issuedAt - a.issuedAt)
     const appeals = [...records.appeals.values()].sort((a, b) =>
       Number(a.adjudication !== undefined) - Number(b.adjudication !== undefined) || b.filedAt - a.filedAt)
-    return {
+    const snapshot: ArchitectureSnapshot = {
       root,
       vcs: checkout.vcs,
       ...(mainBranch === undefined ? {} : { mainBranch }),
@@ -856,7 +860,22 @@ export class ArchitectureService extends Service {
       acceptances: records.acceptances,
       localEntries: localEntries.map((path): LocalEntry => ({ path, status: gitStatus(path) })),
       problems: records.problems.map(problem => ({ file: posix.join(this.config.localDirectory, problem.file), message: problem.message })),
+      fresh: true,
     }
+    // Only a complete read replaces the copy a later reader may see first.
+    this.lastSnapshots.set(root, { ...snapshot, fresh: false })
+    return snapshot
+  }
+
+  /**
+   * The last complete snapshot {@link snapshot} read for the repository containing `cwd`, without reading anything.
+   * @param cwd - any directory inside the repository.
+   * @returns that snapshot with `fresh` false, or undefined before the first complete read, outside a usable checkout,
+   *   and after the service restarts.
+   */
+  lastSnapshot(cwd: string): ArchitectureSnapshot | undefined {
+    const checkout = locateCheckout(cwd)
+    return checkout === undefined ? undefined : this.lastSnapshots.get(checkout.primaryRoot)
   }
 
   /**

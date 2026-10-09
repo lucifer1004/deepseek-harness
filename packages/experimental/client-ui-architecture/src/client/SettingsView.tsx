@@ -62,7 +62,9 @@ function MainBranchField({ workspaceId, snapshot, setMainBranch, t }: SettingsVi
   const current = snapshot.branches?.current ?? []
   const declared = snapshot.mainBranch
   const [choice, setChoice] = useState<string | undefined>(undefined)
-  const [busy, setBusy] = useState(false)
+  const [writing, setBusy] = useState(false)
+  // A kept snapshot may predate a branch write, so the control waits for a fresh one.
+  const busy = writing || !snapshot.fresh
   const [outcome, setOutcome] = useState<BranchOutcome | undefined>(undefined)
   // A new snapshot (another Workspace, a branch switch) restarts the choice from what the repository declares.
   useEffect(() => { setChoice(undefined) }, [workspaceId, declared])

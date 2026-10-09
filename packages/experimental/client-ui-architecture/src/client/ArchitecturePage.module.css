@@ -65,6 +65,19 @@
   flex: none;
 }
 
+/* The kept snapshot is on screen while a fresh one is read. */
+.refreshing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.refreshing svg {
+  width: 14px;
+  height: 14px;
+}
+
 .panel {
   margin-top: 16px;
 }

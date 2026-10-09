@@ -109,7 +109,9 @@ export function ProposedEditItem(props: ProposedEditItemProps): ReactNode {
   const { workspaceId, record, edit, index, state, applyProposedEdit, dismissProposedEdit, heading, t } = props
   const cite = `${edit.path}#${edit.anchor}`
   const pending = state === 'pending'
-  const [busy, setBusy] = useState(false)
+  const [running, setBusy] = useState(false)
+  // A kept snapshot may list an edit already applied or dismissed, so its actions wait for a fresh one.
+  const busy = running || !props.snapshot.fresh
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const labels = useMemo<DiffBlockLabels>(() => ({
     copy: t('markdown.copy'),

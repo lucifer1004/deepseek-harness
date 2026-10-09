@@ -73,7 +73,9 @@ async function remoteError(promise: Promise<unknown>): Promise<RemoteError> {
   throw new Error('expected a RemoteError')
 }
 
-describe('architecture Remote namespace', () => {
+// Each case runs a dozen or more git commands, every one a contained subprocess; on a loaded runner, as under
+// coverage beside the other architecture suites, the busiest case passes 5 s, as service.spec.ts's git cases do.
+describe('architecture Remote namespace', { timeout: 30_000 }, () => {
   it('reads a section before any snapshot builds the index', async () => {
     const { api } = await boot()
     const section = await api.section({ workspaceId: WORKSPACE, path: 'design/arch.md', anchor: 'storage' }, new AbortController().signal)
@@ -210,6 +212,19 @@ describe('architecture Remote namespace', () => {
     const pending = stream.next()
     controller.abort()
     expect((await pending).done).toBe(true)
+
+    // A later follower sees the kept copy at once, marked not fresh, then a fresh read; both before any change.
+    const later = new AbortController()
+    const again = api.follow(WORKSPACE, later.signal)[Symbol.asyncIterator]()
+    const kept = await again.next()
+    expect(kept.done === false ? [kept.value.fresh, kept.value.rulings.length] : []).toEqual([false, 1])
+    const read = await again.next()
+    expect(read.done === false ? [read.value.fresh, read.value.rulings.length] : []).toEqual([true, 1])
+    // The stream still follows its repository, whose root the kept copy named, after an abort mid-wait.
+    ctx.emit('architecture/changed', '/elsewhere')
+    const waiting = again.next()
+    later.abort()
+    expect((await waiting).done).toBe(true)
   })
 
   it('ends a follow stream whose read fails after the client left, and reports a failure otherwise', async () => {

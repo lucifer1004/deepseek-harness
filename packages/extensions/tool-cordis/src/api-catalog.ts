@@ -511,10 +511,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>',
-        description: 'Read the whole dashboard state of a repository. Rebuilds the index first.',
+        description: 'Read the whole dashboard state of a repository. Rebuilds the index first, and keeps the result for lastSnapshot.',
         parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }, { name: 'signal', description: 'cancels the rebuild and git reads.' }],
         returns: 'the snapshot; outside a usable git or jj checkout, an empty snapshot with `unsupported` set.',
         throws: ['for an invalid manifest or a version-control failure.'],
+      },
+      {
+        signature: 'lastSnapshot(cwd: string): ArchitectureSnapshot | undefined',
+        description: 'The last complete snapshot snapshot read for the repository containing `cwd`, without reading anything.',
+        parameters: [{ name: 'cwd', description: 'any directory inside the repository.' }],
+        returns: 'that snapshot with `fresh` false, or undefined before the first complete read, outside a usable checkout, and after the service restarts.',
       },
       {
         signature: 'async setMainBranch(cwd: string, branch: string, signal?: AbortSignal): Promise<ArchitectureEditResult>',
@@ -544,7 +550,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote({ mode: \'stream\' }) async *follow(workspaceId: WorkspaceId, signal: AbortSignal): AsyncIterable<ArchitectureSnapshot>',
-        description: 'Follow the dashboard state of a Workspace: yield a snapshot now and after each `architecture/changed` notification for its repository. Notifications that arrive while a snapshot is being read coalesce into one more read.',
+        description: 'Follow the dashboard state of a Workspace: yield the last snapshot the service read for its repository first, with `fresh` false, when there is one; then a freshly read snapshot, and another after each `architecture/changed` notification for its repository. Notifications that arrive while a snapshot is being read coalesce into one more read.',
         parameters: [{ name: 'workspaceId', description: 'Workspace whose repository is shown.' }, { name: 'signal', description: 'Client observation lifetime.' }],
         returns: 'complete snapshots, oldest first.',
       },
@@ -4798,7 +4804,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ArchitectureSnapshot',
-    declaration: 'export interface ArchitectureSnapshot {\n    readonly root: string;\n    readonly vcs?: VcsKind;\n    readonly unsupported?: {\n        readonly kind: \'no-repository\';\n    } | {\n        readonly kind: \'vcs-missing\';\n        readonly vcs: VcsKind;\n    };\n    readonly mainBranch?: string;\n    readonly manifestPath: string;\n    readonly localDirectory: string;\n    readonly hasManifest: boolean;\n    readonly revision: string;\n    readonly index: ArchitectureIndex;\n    readonly branches?: {\n        readonly all: readonly string[];\n        readonly current: readonly string[];\n    };\n    readonly sourceStatus: Readonly<Record<string, GitFileStatus>>;\n    readonly rulings: ReadonlyArray<RulingRecord & {\n        readonly stale: boolean;\n    }>;\n    readonly appeals: readonly AppealRecord[];\n    readonly acceptances: readonly Acceptance[];\n    readonly localEntries: readonly LocalEntry[];\n    readonly problems: ReadonlyArray<{\n        readonly file: string;\n        readonly message: string;\n    }>;\n}',
+    declaration: 'export interface ArchitectureSnapshot {\n    readonly root: string;\n    readonly vcs?: VcsKind;\n    readonly unsupported?: {\n        readonly kind: \'no-repository\';\n    } | {\n        readonly kind: \'vcs-missing\';\n        readonly vcs: VcsKind;\n    };\n    readonly mainBranch?: string;\n    readonly manifestPath: string;\n    readonly localDirectory: string;\n    readonly hasManifest: boolean;\n    readonly revision: string;\n    readonly index: ArchitectureIndex;\n    readonly branches?: {\n        readonly all: readonly string[];\n        readonly current: readonly string[];\n    };\n    readonly sourceStatus: Readonly<Record<string, GitFileStatus>>;\n    readonly rulings: ReadonlyArray<RulingRecord & {\n        readonly stale: boolean;\n    }>;\n    readonly appeals: readonly AppealRecord[];\n    readonly acceptances: readonly Acceptance[];\n    readonly localEntries: readonly LocalEntry[];\n    readonly problems: ReadonlyArray<{\n        readonly file: string;\n        readonly message: string;\n    }>;\n    readonly fresh: boolean;\n}',
   },
   {
     name: 'ArchiveSessionOptions',
