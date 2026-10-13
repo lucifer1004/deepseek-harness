@@ -77,7 +77,7 @@ The package's runtime content is [`cordis.patch.yml`](cordis.patch.yml). The `ar
 
 #### What the model sees
 
-Worker and architect prompts, schemas, and results belong to [`@deepseek-ai/dsh-experimental-tool-architecture`](../tool-architecture/README.md) and the [service](../architecture/README.md#model-experience). The `architect` preset's persona opens with `You are the architecture agent for this workspace, powered by the {{model}} model.` and ends with `Your working directory is {{cwd}}.`.
+Worker and architect prompts, schemas, and results belong to [`@deepseek-ai/dsh-experimental-tool-architecture`](../tool-architecture/README.md) and the [service](../architecture/README.md#model-experience). The `architect` preset's persona is `You are the architecture agent for this workspace, powered by the {{model}} model.`; the [working-directory service](../../session/working-directory/README.md) supplies the Session's current directory as runtime context.
 
 #### Token effect
 

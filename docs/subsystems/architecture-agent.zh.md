@@ -205,13 +205,22 @@ async dismissProposedEdit(request: DismissProposedEditRequest): Promise<void>
 async accept(cwd: string, path: string, anchor: string, hash: string): Promise<Acceptance>
 
 /**
- * Read the whole dashboard state of a repository. Rebuilds the index first.
+ * Read the whole dashboard state of a repository. Rebuilds the index first, and keeps the result for
+ * {@link lastSnapshot}.
  * @param cwd - any directory inside the repository.
  * @param signal - cancels the rebuild and git reads.
  * @returns the snapshot; outside a usable git or jj checkout, an empty snapshot with `unsupported` set.
  * @throws for an invalid manifest or a version-control failure.
  */
 async snapshot(cwd: string, signal?: AbortSignal): Promise<ArchitectureSnapshot>
+
+/**
+ * The last complete snapshot {@link snapshot} read for the repository containing `cwd`, without reading anything.
+ * @param cwd - any directory inside the repository.
+ * @returns that snapshot with `fresh` false, or undefined before the first complete read, outside a usable checkout,
+ *   and after the service restarts.
+ */
+lastSnapshot(cwd: string): ArchitectureSnapshot | undefined
 
 /**
  * Declare the repository's main branch in its manifest, from the primary checkout. The branch must be one of the
@@ -253,8 +262,10 @@ The `architecture` Remote namespace over `ctx.architecture`, addressed by Worksp
 @Remote async snapshot(workspaceId: WorkspaceId, signal: AbortSignal): Promise<ArchitectureSnapshot>
 
 /**
- * Follow the dashboard state of a Workspace: yield a snapshot now and after
- * each `architecture/changed` notification for its repository. Notifications
+ * Follow the dashboard state of a Workspace: yield the last snapshot the
+ * service read for its repository first, with `fresh` false, when there is
+ * one; then a freshly read snapshot, and another after each
+ * `architecture/changed` notification for its repository. Notifications
  * that arrive while a snapshot is being read coalesce into one more read.
  * @param workspaceId - Workspace whose repository is shown.
  * @param signal - Client observation lifetime.

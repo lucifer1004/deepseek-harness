@@ -40,6 +40,7 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -130,6 +131,7 @@ describe('architecture profile bundle composition', () => {
     await ctx.plugin(AgentPresets, { default: 'architect' })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalFileSystem, { cwd: repo })
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: repo })
     await ctx.plugin(WebRuntime, { searchProvider: 'none', fetchProvider: 'none' })
     await ctx.plugin(UserQuestionService)
     await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions'), compression: 'none' })

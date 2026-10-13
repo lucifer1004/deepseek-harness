@@ -27,24 +27,24 @@ id: 2026-10-04-architecture-consultation-threads
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-09-21-user-question-reply"
-    after: "10778259058757ff9f13490713559813f82bf4e329b60857abf72c9e387988c4"
+    previous: "2026-10-05-working-directory-attribution"
+    after: "c74b83e6a9710b7731cbb0c997729cf7d039f1d7e43b1a03a670b2126981f760"
     decision: same-version
   - root: "event:architecture/consultation"
     previous: null
     after: "1afc132ab7b633cddd8444195792cc157648aa8374052701c13d6cecd0ef9d84"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-09-21-user-question-reply"
-    after: "fa4155a418cc65f08fa109c8097992f7c7f2c0440567b5bfe050bd61433bbd49"
+    previous: "2026-10-05-working-directory-attribution"
+    after: "3cff684ef29fddec2c0edac0b6c0f550a582d45114dfbe8fe3bdeec778e0c013"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-09-21-user-question-reply"
-    after: "f81fe10a8466167f2a32f3c51562a91fbf4153f5fa99f011688e609fd07acef5"
+    previous: "2026-10-07-title-reasoning-effort"
+    after: "66a1eb86e7fe32433a76638b75e7aaf067626ffed70c4a475a9553a8e34413e9"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-09-21-user-question-reply"
-    after: "4a3e4ac79604f3726a265de8359f0c4147239cc589497a909e5e2d9153e82c17"
+    previous: "2026-10-05-working-directory-attribution"
+    after: "df1d20ce54bdd64db9942bd3269a6ecb82fa7a768d18b2186304aa5cc165595d"
     decision: same-version
 ```
 

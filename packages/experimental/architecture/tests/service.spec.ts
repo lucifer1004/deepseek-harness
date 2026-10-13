@@ -179,18 +179,18 @@ describe('ArchitectureService', () => {
     expect(await ctx.architecture.edit({ cwd: root, path: 'docs/architecture.md', content: '# A\n' }))
       .toMatchObject({ refusal: { kind: 'not-protected' } })
     // The branch a first manifest declares need not be the checkout's.
-    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: 'mainBranch: main\nsources:\n  - docs/**/*.md\nexclude:\n  - docs/drafts/**\n' }))
+    expect(await ctx.architecture.edit({ cwd: root, path: 'architecture.yml', content: 'mainBranch: main\nsources:\n  - design/**/*.md\nexclude:\n  - design/drafts/**\n' }))
       .toEqual({ kind: 'written', path: 'architecture.yml' })
     expect(await ctx.architecture.rebuild(root)).toMatchObject({ sources: [] })
 
     // A source that does not exist yet is protected from file tools, and the architect may create it.
     const worker = await agent(ctx, root)
-    expect(await run(ctx, worker, 'write', { file_path: 'docs/sub/new.md' })).toMatch(/is an architecture source/)
-    expect(await run(ctx, worker, 'write', { file_path: 'docs/drafts/x.md' })).toBe('ran:write')
+    expect(await run(ctx, worker, 'write', { file_path: 'design/sub/new.md' })).toMatch(/is an architecture source/)
+    expect(await run(ctx, worker, 'write', { file_path: 'design/drafts/x.md' })).toBe('ran:write')
     expect(await run(ctx, worker, 'write', { file_path: 'code.ts' })).toBe('ran:write')
-    expect(await ctx.architecture.edit({ cwd: root, path: 'docs/sub/new.md', content: '# New\n' })).toEqual({ kind: 'written', path: 'docs/sub/new.md' })
-    expect(ctx.architecture.index(root)?.sources).toEqual(['docs/sub/new.md'])
-    expect(await ctx.architecture.edit({ cwd: root, path: 'docs/drafts/x.md', content: 'x' })).toMatchObject({ refusal: { kind: 'not-protected' } })
+    expect(await ctx.architecture.edit({ cwd: root, path: 'design/sub/new.md', content: '# New\n' })).toEqual({ kind: 'written', path: 'design/sub/new.md' })
+    expect(ctx.architecture.index(root)?.sources).toEqual(['design/sub/new.md'])
+    expect(await ctx.architecture.edit({ cwd: root, path: 'design/drafts/x.md', content: 'x' })).toMatchObject({ refusal: { kind: 'not-protected' } })
     expect(ctx.architecture.checkEdit(root, 'architecture.yml')).toBeUndefined()
   })
 

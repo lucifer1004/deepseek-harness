@@ -151,9 +151,7 @@ manifest 指定权威文件；索引是 `rebuild()` 从这些文件重新生成�
 
 #### 模型看到什么
 
-咨询中的架构师 agent 把 worker 的问题作为来源为 `architecture`、开启每一轮的用户消息收到；worker 指定了范围时，其后跟随 `Scope: <paths>`；接续的一轮把它追加在之前各轮之后。它的系统提示词增加导出为 `CONSULTATION_INSTRUCTION` 的咨询说明，其后是 `consultationBudget()` 给出的时间预算 `You have <consultTimeoutMs 换算的秒数> seconds for this consultation, after which it ends with no answer.` 以及在此之前提交的要求，工具列表增加 `submit_ruling`，参数为 `summary`、`constraints`（每项含 `statement` 与 `cites`）、`unresolved`，以及可选的 `proposedEdits`（每项含 `cite`、读取时的 `hash`、新的 `content` 与 `rationale`）。第二次提交返回 `the ruling is already submitted, so submit_ruling is not executed`。到 `consultNudgeMs` 时架构师仍在工作，就会在下一步收到一条来源为 `architecture`、带 `deadline: true` 的用户消息，由 `consultationDeadlineNotice()` 生成：`About <seconds> seconds remain. Stop reading and call \`submit_ruling\` now with what you have; put every point you could not settle in \`unresolved\`.`
-
-配置了 `architectModel` 时架构师使用它，否则使用 worker 的模型，因此回答问题的模型可能不是提问的模型。
+咨询中的架构师 agent 把 worker 的问题作为来源为 `architecture`、开启每一轮的用户消息收到；worker 指定了范围时，其后跟随 `Scope: <paths>`；接续的一轮把它追加在之前各轮之后。它的系统提示词增加导出为 `CONSULTATION_INSTRUCTION` 的咨询说明，其后是 `consultationBudget()` 给出的时间预算 `You have <consultTimeoutMs 换算的秒数> seconds for this consultation, after which it ends with no answer.` 以及在此之前提交的要求，工具列表增加 `submit_ruling`，参数为 `summary`、`constraints`（每项含 `statement` 与 `cites`）、`unresolved`，以及可选的 `proposedEdits`（每项含 `cite`、读取时的 `hash`、新的 `content` 与 `rationale`）。第二次提交返回 `the ruling is already submitted, so submit_ruling is not executed`。到 `consultNudgeMs` 时架构师仍在工作，就会在下一步收到一条来源为 `architecture`、带 `deadline: true` 的用户消息，由 `consultationDeadlineNotice()` 生成：`About <seconds> seconds remain. Stop reading and call \`submit_ruling\` now with what you have; put every point you could not settle in \`unresolved\`.`配置了 `architectModel` 时架构师使用它，否则使用 worker 的模型，因此回答问题的模型可能不是提问的模型。
 
 #### Token 影响
 

@@ -77,7 +77,7 @@ kind: "package-bundle"
 
 #### 模型看到什么
 
-worker 与架构师的提示词、schema 和结果归 [`@deepseek-ai/dsh-experimental-tool-architecture`](../tool-architecture/README.zh.md) 与[服务](../architecture/README.zh.md#model-experience)所有。`architect` preset 的 persona 以 `You are the architecture agent for this workspace, powered by the {{model}} model.` 开头，以 `Your working directory is {{cwd}}.` 结尾。
+worker 与架构师的提示词、schema 和结果归 [`@deepseek-ai/dsh-experimental-tool-architecture`](../tool-architecture/README.zh.md) 与[服务](../architecture/README.zh.md#model-experience)所有。`architect` preset 的 persona 为 `You are the architecture agent for this workspace, powered by the {{model}} model.`；会话的当前目录由 [working-directory 服务](../../session/working-directory/README.zh.md)作为运行时上下文提供。
 
 #### Token 影响
 

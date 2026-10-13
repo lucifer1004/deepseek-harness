@@ -30,16 +30,16 @@ async function scratch(): Promise<string> {
 async function repository(colocate: boolean): Promise<string> {
   const root = join(await scratch(), 'repo')
   jj(await realpath(join(root, '..')), 'git', 'init', colocate ? '--colocate' : '--no-colocate', 'repo')
-  await mkdir(join(root, 'docs'))
-  await writeFile(join(root, 'architecture.yml'), 'mainBranch: main\nsources:\n  - docs/*.md\n')
-  await writeFile(join(root, 'docs', 'arch.md'), '# Arch\n\n## Storage\n\nThrough the store.\n')
-  await writeFile(join(root, '.gitignore'), 'docs/ignored.md\n')
+  await mkdir(join(root, 'design'))
+  await writeFile(join(root, 'architecture.yml'), 'mainBranch: main\nsources:\n  - design/*.md\n')
+  await writeFile(join(root, 'design', 'arch.md'), '# Arch\n\n## Storage\n\nThrough the store.\n')
+  await writeFile(join(root, '.gitignore'), 'design/ignored.md\n')
   jj(root, 'describe', '-m', 'init')
   jj(root, 'bookmark', 'create', 'main', '-r', '@')
   jj(root, 'new')
-  await writeFile(join(root, 'docs', 'arch.md'), '# Arch\n\n## Storage\n\nThrough the store.\n\n## Draft\n\nNot on main.\n')
-  await writeFile(join(root, 'docs', 'new.md'), '# New\n')
-  await writeFile(join(root, 'docs', 'ignored.md'), '# Ignored\n')
+  await writeFile(join(root, 'design', 'arch.md'), '# Arch\n\n## Storage\n\nThrough the store.\n\n## Draft\n\nNot on main.\n')
+  await writeFile(join(root, 'design', 'new.md'), '# New\n')
+  await writeFile(join(root, 'design', 'ignored.md'), '# Ignored\n')
   return root
 }
 
@@ -80,24 +80,24 @@ describe('locateCheckout for jj metadata', () => {
 describe.skipIf(!hasJj())('ArchitectureService in a jj repository', { timeout: 30_000 }, () => {
   it.each([['non-colocated', false], ['colocated', true]])('indexes, verifies, and guards a %s repository', async (_label, colocate) => {
     const repo = await repository(colocate)
-    expect(locateCheckout(join(repo, 'docs'))).toEqual({ vcs: 'jj', root: repo, primaryRoot: repo, isPrimary: true, branch: undefined })
+    expect(locateCheckout(join(repo, 'design'))).toEqual({ vcs: 'jj', root: repo, primaryRoot: repo, isPrimary: true, branch: undefined })
     const ctx = await boot()
 
     const index = await ctx.architecture.rebuild(repo)
-    expect(index?.sources).toEqual(['docs/arch.md', 'docs/new.md'])
+    expect(index?.sources).toEqual(['design/arch.md', 'design/new.md'])
     const snapshot = await ctx.architecture.snapshot(repo)
-    expect(snapshot).toMatchObject({ vcs: 'jj', mainBranch: 'main', sourceStatus: { 'docs/arch.md': 'modified', 'docs/new.md': 'untracked' } })
+    expect(snapshot).toMatchObject({ vcs: 'jj', mainBranch: 'main', sourceStatus: { 'design/arch.md': 'modified', 'design/new.md': 'untracked' } })
     const draft = index?.sections.find(section => section.anchor === 'draft')
     const storage = index?.sections.find(section => section.anchor === 'storage')
     if (draft === undefined || storage === undefined) throw new Error('sections missing')
 
     // The primary workspace may change the record, wherever its working copy is.
-    expect(ctx.architecture.checkEdit(repo, 'docs/arch.md')).toBeUndefined()
-    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/third.md', content: '# Third\n' })).toEqual({ kind: 'written', path: 'docs/third.md' })
-    expect(ctx.architecture.isProtected(join(repo, 'docs', 'fourth.md'))).toBe(true)
+    expect(ctx.architecture.checkEdit(repo, 'design/arch.md')).toBeUndefined()
+    expect(await ctx.architecture.edit({ cwd: repo, path: 'design/third.md', content: '# Third\n' })).toEqual({ kind: 'written', path: 'design/third.md' })
+    expect(ctx.architecture.isProtected(join(repo, 'design', 'fourth.md'))).toBe(true)
     jj(repo, 'new')
-    expect(await ctx.architecture.edit({ cwd: repo, path: 'docs/fourth.md', content: '# Fourth\n' })).toEqual({ kind: 'written', path: 'docs/fourth.md' })
-    expect(await readFile(join(repo, 'docs', 'third.md'), 'utf8')).toBe('# Third\n')
+    expect(await ctx.architecture.edit({ cwd: repo, path: 'design/fourth.md', content: '# Fourth\n' })).toEqual({ kind: 'written', path: 'design/fourth.md' })
+    expect(await readFile(join(repo, 'design', 'third.md'), 'utf8')).toBe('# Third\n')
     // Two commits past `main`, it is on no bookmark, yet every bookmark is listed.
     expect(await ctx.architecture.branches(repo)).toEqual({ vcs: 'jj', isPrimary: true, current: [], all: ['main'] })
 
@@ -110,22 +110,22 @@ describe.skipIf(!hasJj())('ArchitectureService in a jj repository', { timeout: 3
     const repo = await repository(false)
     const ctx = await boot()
     const files = new JjFiles(ctx.subprocess, await ctx.subprocess.resolveExecutable('jj'), { timeoutMs: 10_000, outputMaxBytes: 1_000_000 })
-    expect(await files.committed(repo, 'main', 'docs/arch.md', undefined)).toBe('# Arch\n\n## Storage\n\nThrough the store.\n')
-    expect(await files.committed(repo, 'main', 'docs/new.md', undefined)).toBeUndefined()
-    expect(await files.committed(repo, 'nope', 'docs/arch.md', undefined)).toBeUndefined()
+    expect(await files.committed(repo, 'main', 'design/arch.md', undefined)).toBe('# Arch\n\n## Storage\n\nThrough the store.\n')
+    expect(await files.committed(repo, 'main', 'design/new.md', undefined)).toBeUndefined()
+    expect(await files.committed(repo, 'nope', 'design/arch.md', undefined)).toBeUndefined()
     expect(await files.status(repo, 'main', [], undefined)).toEqual(new Map())
     // jj needs the tracked list first, so a glob query defers to status after listing.
     expect(await files.globStatus()).toBeUndefined()
     expect(await ctx.architecture.branches(repo)).toEqual({ vcs: 'jj', isPrimary: true, current: ['main'], all: ['main'] })
-    expect(await files.status(repo, 'main', ['docs/ignored.md'], undefined)).toEqual(new Map([['docs/ignored.md', 'ignored']]))
-    expect(await files.status(repo, undefined, ['docs/ignored.md', 'docs/new.md'], undefined))
-      .toEqual(new Map([['docs/ignored.md', 'ignored'], ['docs/new.md', 'untracked']]))
+    expect(await files.status(repo, 'main', ['design/ignored.md'], undefined)).toEqual(new Map([['design/ignored.md', 'ignored']]))
+    expect(await files.status(repo, undefined, ['design/ignored.md', 'design/new.md'], undefined))
+      .toEqual(new Map([['design/ignored.md', 'ignored'], ['design/new.md', 'untracked']]))
     // Two concurrent operations that move one bookmark leave it conflicted.
     jj(repo, 'bookmark', 'create', 'side', '-r', '@-')
     const operation = jj(repo, 'op', 'log', '--no-graph', '-T', 'id ++ "\\n"', '--limit', '1').trim()
     jj(repo, 'bookmark', 'set', 'side', '-r', '@')
     jj(repo, '--at-op', operation, 'bookmark', 'set', 'side', '-r', 'root()', '--allow-backwards')
-    await expect(files.committed(repo, 'side', 'docs/arch.md', undefined)).rejects.toThrow(/jj file show failed/)
+    await expect(files.committed(repo, 'side', 'design/arch.md', undefined)).rejects.toThrow(/jj file show failed/)
     await expect(files.list(await scratch(), [], undefined)).rejects.toThrow(/jj file list failed/)
   })
 
@@ -137,8 +137,8 @@ describe.skipIf(!hasJj())('ArchitectureService in a jj repository', { timeout: 3
     expect(locateCheckout(secondRoot)).toEqual({ vcs: 'jj', root: secondRoot, primaryRoot: repo, isPrimary: false, branch: undefined })
     const ctx = await boot()
     await ctx.architecture.rebuild(secondRoot)
-    expect(ctx.architecture.isProtected(join(secondRoot, 'docs', 'arch.md'))).toBe(true)
-    expect(await ctx.architecture.edit({ cwd: secondRoot, path: 'docs/arch.md', content: 'x' }))
+    expect(ctx.architecture.isProtected(join(secondRoot, 'design', 'arch.md'))).toBe(true)
+    expect(await ctx.architecture.edit({ cwd: secondRoot, path: 'design/arch.md', content: 'x' }))
       .toEqual({ kind: 'refused', refusal: { kind: 'linked-worktree', root: secondRoot, primaryRoot: repo } })
   })
 
