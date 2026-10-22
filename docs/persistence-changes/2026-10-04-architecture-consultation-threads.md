@@ -27,24 +27,24 @@ id: 2026-10-04-architecture-consultation-threads
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-10-05-working-directory-attribution"
-    after: "c74b83e6a9710b7731cbb0c997729cf7d039f1d7e43b1a03a670b2126981f760"
+    previous: "2026-10-13-user-rpc-principal"
+    after: "28a9e537f986c42705cbf3d4c8289a804a8d315746d02caf42e554c30d4e6c94"
     decision: same-version
   - root: "event:architecture/consultation"
     previous: null
     after: "1afc132ab7b633cddd8444195792cc157648aa8374052701c13d6cecd0ef9d84"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-10-05-working-directory-attribution"
-    after: "3cff684ef29fddec2c0edac0b6c0f550a582d45114dfbe8fe3bdeec778e0c013"
+    previous: "2026-10-13-user-rpc-principal"
+    after: "8be6c9ef42c7cd0f63012b866061173e759507d67fd1c95bdf2b4ef3f602878f"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-10-07-title-reasoning-effort"
-    after: "66a1eb86e7fe32433a76638b75e7aaf067626ffed70c4a475a9553a8e34413e9"
+    previous: "2026-10-13-user-rpc-principal"
+    after: "b596f1cdae037035b9e53346ac0819179dfefada5116335cedd694cffba61bba"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-10-05-working-directory-attribution"
-    after: "df1d20ce54bdd64db9942bd3269a6ecb82fa7a768d18b2186304aa5cc165595d"
+    previous: "2026-10-13-user-rpc-principal"
+    after: "05ca4003b7ccb27ab703bee6e0219e71504ad830b2099db6e7963d3d101e8535"
     decision: same-version
 ```
 

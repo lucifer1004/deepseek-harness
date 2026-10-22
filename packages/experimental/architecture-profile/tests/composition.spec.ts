@@ -29,7 +29,7 @@ import * as ArchitectTools from '@deepseek-ai/dsh-experimental-tool-architecture
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import * as Persona from '@deepseek-ai/dsh-persona'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'

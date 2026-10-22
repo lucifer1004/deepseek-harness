@@ -134,7 +134,7 @@ async function fixture(options: FixtureOptions = {}) {
   }
   ctx.provide('remote.architecture', architecture)
   const configForm = {
-    getSnapshot: () => ({ status: 'ready', value: {}, base: undefined, user: undefined, revision: 1, writable: true, mode: 'host' }),
+    getSnapshot: () => ({ status: 'ready', value: {}, base: undefined, user: undefined, revision: 1, writable: true }),
     subscribe: vi.fn(() => () => {}),
     mutate: vi.fn(async () => true),
   }

@@ -14,7 +14,7 @@ const CATALOG: ModelCatalog = {
 
 function scope(value: ArchitectModelSettings | undefined, status: ConfigFormSnapshot<ArchitectModelSettings>['status'] = 'ready') {
   let snapshot: ConfigFormSnapshot<ArchitectModelSettings> = {
-    status, value, base: undefined, user: undefined, revision: 1, writable: true, mode: 'host',
+    status, value, base: undefined, user: undefined, revision: 1, writable: true,
   }
   const listeners = new Set<() => void>()
   const mutate = vi.fn<ConfigForm<ArchitectModelSettings>['mutate']>(async () => true)
